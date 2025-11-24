@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" 
+    "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!-- src/main/resources/mapper/AppMapper.xml -->
+<mapper namespace="Maven.Project.app.mapper.AppMapper">
+
+    <!-- 结果映射：定义数据库字段与 Java 属性的对应关系 -->
+    <resultMap id="AppResultMap" type="AppEntity">
+        <id property="id" column="id"/>
+        <result property="name" column="name"/>
+        <result property="description" column="description"/>
+        <result property="fullDescription" column="full_description"/>
+        <result property="avatar" column="avatar"/>
+        <result property="category" column="category"/>
+        <result property="price" column="price"/>
+        <result property="rating" column="rating"/>
+        <result property="downloads" column="downloads"/>
+        <result property="reviews" column="reviews"/>
+        <result property="author" column="author"/>
+        <result property="publishedAt" column="published_at"/>
+    </resultMap>
+
+    <!-- 查询所有应用 -->
+    <select id="findAllOrderById" resultMap="AppResultMap">
+        SELECT * FROM t_app ORDER BY id ASC
+    </select>
+
+    <!-- 根据 ID 查询 -->
+    <select id="findById" resultMap="AppResultMap">
+        SELECT * FROM t_app WHERE id = #{id}
+    </select>
+
+    <!-- 根据分类查询 -->
+    <select id="findByCategory" resultMap="AppResultMap">
+        SELECT * FROM t_app WHERE category = #{category} ORDER BY id ASC
+    </select>
+
+    <!-- 查询所有应用，支持排序参数 -->
+    <select id="findAllWithSort" resultMap="AppResultMap">
+        SELECT * FROM t_app
+        <choose>
+            <when test="sortBy == 'rating'">
+                ORDER BY rating ${sortOrder}, id ASC
+            </when>
+            <when test="sortBy == 'downloads'">
+                ORDER BY downloads ${sortOrder}, id ASC
+            </when>
+            <otherwise>
+                ORDER BY id ASC
+            </otherwise>
+        </choose>
+    </select>
+
+</mapper>
