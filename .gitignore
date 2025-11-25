@@ -1,21 +1,24 @@
-# Build and Release Folders
-bin-debug/
-bin-release/
-[Oo]bj/
-[Bb]in/
+# Java
+backend/target/
+backend/.idea/
+backend/*.iml
 
-# Other files and folders
-.settings/
+# Node.js
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# IDE
+.idea/
 .vscode/
-.cursor/
 
-# Executables
-*.swf
-*.air
-*.ipa
-*.apk
-
-# Project files, i.e. `.project`, `.actionScriptProperties` and `.flexProperties`
-# should NOT be excluded as they contain compiler settings and other important
-# information for Eclipse / Flash Builder.
+# 系统文件
 .DS_Store
+
+# 日志
+*.log
+logs/
+
+# 配置文件（包含敏感信息）
+.env
+.env.prod

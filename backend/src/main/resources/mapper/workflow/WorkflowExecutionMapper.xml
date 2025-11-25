@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.aiagent.workflow.mapper.WorkflowExecutionMapper">
+
+    <resultMap id="WorkflowExecutionResultMap" type="com.aiagent.workflow.entity.WorkflowExecution">
+        <id property="id" column="id"/>
+        <result property="workflowId" column="workflow_id"/>
+        <result property="userId" column="user_id"/>
+        <result property="status" column="status"/>
+        <result property="inputParams" column="input_params"/>
+        <result property="outputResult" column="output_result"/>
+        <result property="errorMessage" column="error_message"/>
+        <result property="startedAt" column="started_at"/>
+        <result property="completedAt" column="completed_at"/>
+        <result property="createdAt" column="created_at"/>
+    </resultMap>
+
+    <select id="findByWorkflowId" parameterType="long" resultMap="WorkflowExecutionResultMap">
+        SELECT id, workflow_id, user_id, status, input_params, output_result, error_message,
+               started_at, completed_at, created_at
+        FROM workflow_execution
+        WHERE workflow_id = #{workflowId}
+        ORDER BY created_at DESC
+    </select>
+
+    <select id="findByUserId" parameterType="long" resultMap="WorkflowExecutionResultMap">
+        SELECT id, workflow_id, user_id, status, input_params, output_result, error_message,
+               started_at, completed_at, created_at
+        FROM workflow_execution
+        WHERE user_id = #{userId}
+        ORDER BY created_at DESC
+    </select>
+
+    <select id="findById" parameterType="long" resultMap="WorkflowExecutionResultMap">
+        SELECT id, workflow_id, user_id, status, input_params, output_result, error_message,
+               started_at, completed_at, created_at
+        FROM workflow_execution
+        WHERE id = #{id}
+    </select>
+
+    <insert id="insert" parameterType="com.aiagent.workflow.entity.WorkflowExecution" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO workflow_execution (workflow_id, user_id, status, input_params, output_result,
+                                       error_message, started_at, completed_at, created_at)
+        VALUES (#{workflowId}, #{userId}, #{status}, #{inputParams}, #{outputResult},
+                #{errorMessage}, #{startedAt}, #{completedAt}, #{createdAt})
+    </insert>
+
+    <update id="update" parameterType="com.aiagent.workflow.entity.WorkflowExecution">
+        UPDATE workflow_execution
+        SET status = #{status},
+            output_result = #{outputResult},
+            error_message = #{errorMessage},
+            started_at = #{startedAt},
+            completed_at = #{completedAt}
+        WHERE id = #{id}
+    </update>
+
+</mapper>
+

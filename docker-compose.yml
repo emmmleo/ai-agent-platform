@@ -1,0 +1,104 @@
+services:
+  # MySQL数据库服务（未修改）
+  mysql:
+    image: mysql:8.0
+    container_name: codehubix-mysql
+    environment:
+      - MYSQL_ROOT_PASSWORD=root123456
+      - MYSQL_DATABASE=demo_db
+      - MYSQL_USER=demo_user
+      - MYSQL_PASSWORD=demo_pass_123
+    ports:
+      - "3306:3306"
+    command: [
+      "--default-authentication-plugin=mysql_native_password",
+      "--character-set-server=utf8mb4",
+      "--collation-server=utf8mb4_0900_ai_ci"
+    ]
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./backend/database/init:/docker-entrypoint-initdb.d
+    networks:
+      - codehubix_network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "demo_user", "-pdemo_pass_123"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # phpMyAdmin管理工具（未修改）
+  phpmyadmin:
+    image: phpmyadmin/phpmyadmin
+    container_name: codehubix-phpmyadmin
+    environment:
+      - PMA_HOST=mysql
+      - PMA_PORT=3306
+      - PMA_USER=demo_user
+      - PMA_PASSWORD=demo_pass_123
+    ports:
+      - "8081:80"
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - codehubix_network
+    restart: unless-stopped
+
+  # 后端服务
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      # 如果需要代理，请参考 PROXY_CONFIG.md 配置
+      # 方法1: 使用环境变量
+      # 方法2: 取消下面的注释并设置代理地址
+      # args:
+      #   HTTP_PROXY: http://10.7.47.36:7890
+      #   HTTPS_PROXY: http://10.7.47.36:7890
+    container_name: codehubix-backend
+    environment:
+      - SPRING_DATASOURCE_JDBC_URL=jdbc:mysql://mysql:3306/demo_db?useSSL=false&serverTimezone=Asia/Shanghai&characterEncoding=UTF-8
+      - SPRING_DATASOURCE_USERNAME=demo_user
+      - SPRING_DATASOURCE_PASSWORD=demo_pass_123
+      - SERVER_PORT=8082
+    ports:
+      - "8082:8082"
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - codehubix_network
+    restart: unless-stopped
+    volumes:
+      - backend_logs:/app/logs
+
+  # 前端服务
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      # 如果需要代理，请参考 PROXY_CONFIG.md 配置
+      # 方法1: 使用环境变量
+      # 方法2: 取消下面的注释并设置代理地址
+      # args:
+      #   HTTP_PROXY: http://127.0.0.1:7890
+      #   HTTPS_PROXY: http://127.0.0.1:7890
+    container_name: codehubix-frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    networks:
+      - codehubix_network
+    restart: unless-stopped
+
+volumes:
+  mysql_data:
+    driver: local
+  backend_logs:
+    driver: local
+
+networks:
+  codehubix_network:
+    driver: bridge

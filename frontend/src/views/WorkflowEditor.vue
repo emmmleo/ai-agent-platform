@@ -1,0 +1,580 @@
+<template>
+  <div class="workflow-editor">
+    <div class="header">
+      <h1>{{ isEdit ? '编辑工作流' : '创建工作流' }}</h1>
+      <div class="header-actions">
+        <button @click="handleSave" :disabled="loading" class="save-btn">保存</button>
+        <router-link to="/workflows" class="back-btn">返回列表</router-link>
+      </div>
+    </div>
+
+    <div v-if="error" class="error-message">{{ error }}</div>
+    <div v-if="successMessage" class="success-message">{{ successMessage }}</div>
+
+    <div class="editor-container">
+      <div class="editor-sidebar">
+        <h3>节点类型</h3>
+        <div class="node-types">
+          <div
+            v-for="nodeType in nodeTypes"
+            :key="nodeType.type"
+            class="node-type-item"
+            draggable="true"
+            @dragstart="handleDragStart($event, nodeType)"
+          >
+            <span class="node-icon">{{ nodeType.icon }}</span>
+            <span>{{ nodeType.name }}</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="editor-main">
+        <div class="editor-toolbar">
+          <input
+            v-model="workflowName"
+            type="text"
+            placeholder="工作流名称"
+            class="workflow-name-input"
+            :disabled="loading"
+          />
+          <button @click="handleAddStartNode" class="toolbar-btn">添加起始节点</button>
+          <button @click="handleAddEndNode" class="toolbar-btn">添加结束节点</button>
+          <button @click="handleClear" class="toolbar-btn">清空</button>
+        </div>
+
+        <div
+          class="editor-canvas"
+          @drop="handleDrop"
+          @dragover.prevent
+          @click="handleCanvasClick"
+        >
+          <svg class="edges-layer">
+            <line
+              v-for="edge in edges"
+              :key="edge.id"
+              :x1="getNodeX(edge.source)"
+              :y1="getNodeY(edge.source)"
+              :x2="getNodeX(edge.target)"
+              :y2="getNodeY(edge.target)"
+              stroke="#666"
+              stroke-width="2"
+              marker-end="url(#arrowhead)"
+            />
+            <defs>
+              <marker
+                id="arrowhead"
+                markerWidth="10"
+                markerHeight="10"
+                refX="9"
+                refY="3"
+                orient="auto"
+              >
+                <polygon points="0 0, 10 3, 0 6" fill="#666" />
+              </marker>
+            </defs>
+          </svg>
+
+          <div
+            v-for="node in nodes"
+            :key="node.id"
+            class="workflow-node"
+            :style="{ left: node.position?.x + 'px', top: node.position?.y + 'px' }"
+            @mousedown="handleNodeMouseDown($event, node)"
+            @click.stop="handleNodeClick(node)"
+          >
+            <div class="node-header">
+              <span class="node-type-badge">{{ getNodeTypeName(node.type) }}</span>
+              <button @click.stop="handleDeleteNode(node)" class="node-delete-btn">×</button>
+            </div>
+            <div class="node-body">{{ node.name }}</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { ref, onMounted, computed } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
+import {
+  createWorkflow,
+  updateWorkflow,
+  getWorkflow,
+  type WorkflowNode,
+  type WorkflowEdge,
+  type WorkflowDefinition,
+} from '../api/workflow'
+
+const router = useRouter()
+const route = useRoute()
+
+const workflowId = computed(() => {
+  const id = route.params.id
+  return id && id !== 'new' ? Number(id) : null
+})
+
+const isEdit = computed(() => !!workflowId.value)
+
+const workflowName = ref('')
+const nodes = ref<WorkflowNode[]>([])
+const edges = ref<WorkflowEdge[]>([])
+const loading = ref(false)
+const error = ref<string | null>(null)
+const successMessage = ref<string | null>(null)
+const draggedNodeType = ref<string | null>(null)
+const selectedNode = ref<WorkflowNode | null>(null)
+const nodeOffset = ref({ x: 0, y: 0 })
+
+const nodeTypes = [
+  { type: 'start', name: '起始', icon: '▶' },
+  { type: 'end', name: '结束', icon: '■' },
+  { type: 'agent', name: '智能体', icon: '🤖' },
+  { type: 'condition', name: '条件', icon: '❓' },
+  { type: 'action', name: '动作', icon: '⚡' },
+]
+
+// 加载工作流详情（编辑模式）
+const loadWorkflow = async () => {
+  if (!workflowId.value) return
+
+  loading.value = true
+  error.value = null
+  try {
+    const workflow = await getWorkflow(workflowId.value)
+    workflowName.value = workflow.name
+    if (workflow.definition) {
+      nodes.value = workflow.definition.nodes || []
+      edges.value = workflow.definition.edges || []
+    }
+  } catch (e: any) {
+    error.value = e.message || '加载工作流详情失败'
+    console.error('加载工作流详情失败:', e)
+  } finally {
+    loading.value = false
+  }
+}
+
+// 拖拽开始
+const handleDragStart = (event: DragEvent, nodeType: any) => {
+  draggedNodeType.value = nodeType.type
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = 'copy'
+  }
+}
+
+// 拖拽放置
+const handleDrop = (event: DragEvent) => {
+  event.preventDefault()
+  if (!draggedNodeType.value) return
+
+  const canvas = event.currentTarget as HTMLElement
+  const rect = canvas.getBoundingClientRect()
+  const x = event.clientX - rect.left
+  const y = event.clientY - rect.top
+
+  const nodeType = nodeTypes.find(nt => nt.type === draggedNodeType.value)
+  if (!nodeType) return
+
+  const newNode: WorkflowNode = {
+    id: `node_${Date.now()}`,
+    type: draggedNodeType.value,
+    name: nodeType.name,
+    position: { x: x - 75, y: y - 40 },
+  }
+
+  nodes.value.push(newNode)
+  draggedNodeType.value = null
+}
+
+// 节点鼠标按下
+const handleNodeMouseDown = (event: MouseEvent, node: WorkflowNode) => {
+  selectedNode.value = node
+  const nodeElement = event.currentTarget as HTMLElement
+  const rect = nodeElement.getBoundingClientRect()
+  nodeOffset.value = {
+    x: event.clientX - rect.left,
+    y: event.clientY - rect.top,
+  }
+
+  const handleMouseMove = (e: MouseEvent) => {
+    if (selectedNode.value && selectedNode.value.id === node.id) {
+      const canvas = document.querySelector('.editor-canvas') as HTMLElement
+      const canvasRect = canvas.getBoundingClientRect()
+      const x = e.clientX - canvasRect.left - nodeOffset.value.x
+      const y = e.clientY - canvasRect.top - nodeOffset.value.y
+      selectedNode.value.position = { x, y }
+    }
+  }
+
+  const handleMouseUp = () => {
+    selectedNode.value = null
+    document.removeEventListener('mousemove', handleMouseMove)
+    document.removeEventListener('mouseup', handleMouseUp)
+  }
+
+  document.addEventListener('mousemove', handleMouseMove)
+  document.addEventListener('mouseup', handleMouseUp)
+}
+
+// 节点点击
+const handleNodeClick = (node: WorkflowNode) => {
+  const name = prompt('请输入节点名称:', node.name)
+  if (name !== null) {
+    node.name = name
+  }
+}
+
+// 删除节点
+const handleDeleteNode = (node: WorkflowNode) => {
+  if (confirm(`确定要删除节点"${node.name}"吗？`)) {
+    nodes.value = nodes.value.filter(n => n.id !== node.id)
+    edges.value = edges.value.filter(e => e.source !== node.id && e.target !== node.id)
+  }
+}
+
+// 添加起始节点
+const handleAddStartNode = () => {
+  const newNode: WorkflowNode = {
+    id: `node_${Date.now()}`,
+    type: 'start',
+    name: '起始',
+    position: { x: 100, y: 100 },
+  }
+  nodes.value.push(newNode)
+}
+
+// 添加结束节点
+const handleAddEndNode = () => {
+  const newNode: WorkflowNode = {
+    id: `node_${Date.now()}`,
+    type: 'end',
+    name: '结束',
+    position: { x: 300, y: 100 },
+  }
+  nodes.value.push(newNode)
+}
+
+// 清空
+const handleClear = () => {
+  if (confirm('确定要清空所有节点吗？')) {
+    nodes.value = []
+    edges.value = []
+  }
+}
+
+// 画布点击
+const handleCanvasClick = (_event: MouseEvent) => {
+  // 可以在这里实现连线功能
+}
+
+// 获取节点X坐标
+const getNodeX = (nodeId: string) => {
+  const node = nodes.value.find(n => n.id === nodeId)
+  return node?.position?.x ? node.position.x + 75 : 0
+}
+
+// 获取节点Y坐标
+const getNodeY = (nodeId: string) => {
+  const node = nodes.value.find(n => n.id === nodeId)
+  return node?.position?.y ? node.position.y + 40 : 0
+}
+
+// 获取节点类型名称
+const getNodeTypeName = (type: string) => {
+  const nodeType = nodeTypes.find(nt => nt.type === type)
+  return nodeType?.name || type
+}
+
+// 保存
+const handleSave = async () => {
+  if (!workflowName.value.trim()) {
+    error.value = '请填写工作流名称'
+    return
+  }
+
+  if (nodes.value.length === 0) {
+    error.value = '请至少添加一个节点'
+    return
+  }
+
+  loading.value = true
+  error.value = null
+  successMessage.value = null
+
+  try {
+    const definition: WorkflowDefinition = {
+      nodes: nodes.value,
+      edges: edges.value,
+    }
+
+    const data = {
+      name: workflowName.value.trim(),
+      description: '',
+      definition,
+    }
+
+    if (isEdit.value) {
+      await updateWorkflow(workflowId.value!, data)
+      successMessage.value = '更新成功'
+    } else {
+      await createWorkflow(data)
+      successMessage.value = '创建成功'
+    }
+
+    setTimeout(() => {
+      router.push('/workflows')
+    }, 1500)
+  } catch (e: any) {
+    error.value = e.message || (isEdit.value ? '更新失败' : '创建失败')
+    console.error('保存失败:', e)
+  } finally {
+    loading.value = false
+  }
+}
+
+onMounted(() => {
+  if (isEdit.value) {
+    loadWorkflow()
+  }
+})
+</script>
+
+<style scoped>
+.workflow-editor {
+  padding: 20px;
+  height: calc(100vh - 40px);
+  display: flex;
+  flex-direction: column;
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+h1 {
+  color: #2c3e50;
+  margin: 0;
+  font-size: 24px;
+}
+
+.header-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.save-btn,
+.back-btn {
+  padding: 10px 20px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  text-decoration: none;
+  transition: background 0.3s;
+}
+
+.save-btn {
+  background: #42b983;
+  color: white;
+}
+
+.save-btn:hover:not(:disabled) {
+  background: #35a372;
+}
+
+.save-btn:disabled {
+  background: #ccc;
+  cursor: not-allowed;
+}
+
+.back-btn {
+  background: #6c757d;
+  color: white;
+  display: inline-block;
+}
+
+.back-btn:hover {
+  background: #5a6268;
+}
+
+.error-message,
+.success-message {
+  padding: 15px;
+  border-radius: 4px;
+  margin-bottom: 20px;
+}
+
+.error-message {
+  background: #ffebee;
+  color: #f44336;
+  border: 1px solid #f44336;
+}
+
+.success-message {
+  background: #e8f5e9;
+  color: #4caf50;
+  border: 1px solid #4caf50;
+}
+
+.editor-container {
+  display: flex;
+  flex: 1;
+  gap: 20px;
+  overflow: hidden;
+}
+
+.editor-sidebar {
+  width: 200px;
+  background: white;
+  border-radius: 8px;
+  padding: 20px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.editor-sidebar h3 {
+  margin: 0 0 15px 0;
+  color: #2c3e50;
+  font-size: 16px;
+}
+
+.node-types {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.node-type-item {
+  padding: 10px;
+  background: #f5f5f5;
+  border-radius: 4px;
+  cursor: move;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  transition: background 0.3s;
+}
+
+.node-type-item:hover {
+  background: #e0e0e0;
+}
+
+.node-icon {
+  font-size: 20px;
+}
+
+.editor-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  overflow: hidden;
+}
+
+.editor-toolbar {
+  padding: 15px;
+  border-bottom: 1px solid #eee;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.workflow-name-input {
+  flex: 1;
+  padding: 8px 12px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 14px;
+}
+
+.toolbar-btn {
+  padding: 8px 16px;
+  background: #42b983;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: background 0.3s;
+}
+
+.toolbar-btn:hover {
+  background: #35a372;
+}
+
+.editor-canvas {
+  flex: 1;
+  position: relative;
+  overflow: auto;
+  background: #f9f9f9;
+}
+
+.edges-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.workflow-node {
+  position: absolute;
+  width: 150px;
+  background: white;
+  border: 2px solid #42b983;
+  border-radius: 8px;
+  cursor: move;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  transition: box-shadow 0.3s;
+}
+
+.workflow-node:hover {
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+}
+
+.node-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px;
+  background: #42b983;
+  color: white;
+  border-radius: 6px 6px 0 0;
+}
+
+.node-type-badge {
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.node-delete-btn {
+  background: transparent;
+  border: none;
+  color: white;
+  cursor: pointer;
+  font-size: 20px;
+  line-height: 1;
+  padding: 0;
+  width: 20px;
+  height: 20px;
+}
+
+.node-delete-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 50%;
+}
+
+.node-body {
+  padding: 12px;
+  text-align: center;
+  color: #2c3e50;
+  font-weight: 500;
+}
+</style>
+
