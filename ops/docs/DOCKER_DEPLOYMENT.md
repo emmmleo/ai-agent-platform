@@ -3,7 +3,7 @@
 ## 📦 文件结构
 
 ```
-codehubix/
+ai-agent-platform/
 ├── backend/
 │   ├── Dockerfile              # 后端Docker镜像构建文件
 │   └── .dockerignore          # Docker构建忽略文件

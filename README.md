@@ -1,4 +1,4 @@
-# CodeHubix
+# ai-agent-platform
 
 基于 AI 的智能体管理平台
 
@@ -38,7 +38,7 @@ chmod +x deploy.sh
 ## 🏗️ 项目结构
 
 ```
-codehubix/
+ai-agent-platform/
 ├── backend/          # 后端服务（Spring Boot）
 ├── frontend/         # 前端应用（Vue 3）
 ├── ops/              # 运维脚本和文档

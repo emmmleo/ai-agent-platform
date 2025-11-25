@@ -1,4 +1,4 @@
-# CodeHubix 项目启动指南
+# ai-agent-platform项目启动指南
 
 ## 🚀 快速启动（推荐：Docker方式）
 
@@ -37,7 +37,7 @@ registry-mirrors": [
 
 #### 步骤2：执行部署脚本(docker能直接拉取镜像)
 ```cmd
-cd 你的目录\codehubixops\scripts
+cd 你的目录\ai-agent-platform\ops\scripts
 ```
 ```
 .\deploy.bat
