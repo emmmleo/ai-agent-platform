@@ -50,6 +50,51 @@ if %NO_BUILD%==0 (
     echo [INFO] 提示: 如果镜像拉取失败，请配置Docker镜像加速器
     echo [INFO] 运行 setup-docker-mirror.bat 查看配置方法
     echo.
+    
+    REM 预先拉取所有所需的基础镜像，避免构建时拉取失败
+    echo [INFO] 预先拉取基础镜像（如果不存在）...
+    echo [INFO] 这可以避免构建过程中的网络问题...
+    echo.
+    
+    echo [INFO] 拉取后端构建镜像: maven:3.9-eclipse-temurin-21...
+    docker pull maven:3.9-eclipse-temurin-21 2>nul
+    if %errorlevel% neq 0 (
+        echo [WARN] 拉取 maven:3.9-eclipse-temurin-21 失败，将在构建时重试
+    )
+    
+    echo [INFO] 拉取后端运行镜像: eclipse-temurin:21-jre-alpine...
+    docker pull eclipse-temurin:21-jre-alpine 2>nul
+    if %errorlevel% neq 0 (
+        echo [WARN] 拉取 eclipse-temurin:21-jre-alpine 失败，将在构建时重试
+    )
+    
+    echo [INFO] 拉取前端构建镜像: node:20-alpine...
+    docker pull node:20-alpine 2>nul
+    if %errorlevel% neq 0 (
+        echo [WARN] 拉取 node:20-alpine 失败，将在构建时重试
+    )
+    
+    echo [INFO] 拉取前端运行镜像: nginx:alpine...
+    docker pull nginx:alpine 2>nul
+    if %errorlevel% neq 0 (
+        echo [WARN] 拉取 nginx:alpine 失败，将在构建时重试
+    )
+    
+    echo [INFO] 拉取数据库镜像: mysql:8.0...
+    docker pull mysql:8.0 2>nul
+    if %errorlevel% neq 0 (
+        echo [WARN] 拉取 mysql:8.0 失败，将在启动时重试
+    )
+    
+    echo [INFO] 拉取 phpMyAdmin 镜像: phpmyadmin/phpmyadmin...
+    docker pull phpmyadmin/phpmyadmin 2>nul
+    if %errorlevel% neq 0 (
+        echo [WARN] 拉取 phpmyadmin/phpmyadmin 失败，将在启动时重试
+    )
+    
+    echo [INFO] 基础镜像拉取完成（已存在的镜像会跳过）
+    echo.
+    
     echo [INFO] 构建后端镜像...
     docker-compose build backend
     if %errorlevel% neq 0 (
