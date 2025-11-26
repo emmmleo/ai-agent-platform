@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# CodeHubix 部署脚本
+# ai-agent-platform 部署脚本
 # 用途: 一键部署整个应用（数据库、后端、前端）
 
 set -e  # 遇到错误立即退出
@@ -70,6 +70,35 @@ cleanup_old_containers() {
 # 构建镜像
 build_images() {
     print_info "开始构建镜像..."
+    print_info "注意: 首次构建可能需要几分钟，请耐心等待..."
+    print_info "提示: 如果镜像拉取失败，请配置Docker镜像加速器"
+    echo ""
+    
+    # 预先拉取所有所需的基础镜像，避免构建时拉取失败
+    print_info "预先拉取基础镜像（如果不存在）..."
+    print_info "这可以避免构建过程中的网络问题..."
+    echo ""
+    
+    print_info "拉取后端构建镜像: maven:3.9-eclipse-temurin-21..."
+    docker pull maven:3.9-eclipse-temurin-21 2>/dev/null || print_warn "拉取 maven:3.9-eclipse-temurin-21 失败，将在构建时重试"
+    
+    print_info "拉取后端运行镜像: eclipse-temurin:21-jre-alpine..."
+    docker pull eclipse-temurin:21-jre-alpine 2>/dev/null || print_warn "拉取 eclipse-temurin:21-jre-alpine 失败，将在构建时重试"
+    
+    print_info "拉取前端构建镜像: node:20-alpine..."
+    docker pull node:20-alpine 2>/dev/null || print_warn "拉取 node:20-alpine 失败，将在构建时重试"
+    
+    print_info "拉取前端运行镜像: nginx:alpine..."
+    docker pull nginx:alpine 2>/dev/null || print_warn "拉取 nginx:alpine 失败，将在构建时重试"
+    
+    print_info "拉取数据库镜像: mysql:8.0..."
+    docker pull mysql:8.0 2>/dev/null || print_warn "拉取 mysql:8.0 失败，将在启动时重试"
+    
+    print_info "拉取 phpMyAdmin 镜像: phpmyadmin/phpmyadmin..."
+    docker pull phpmyadmin/phpmyadmin 2>/dev/null || print_warn "拉取 phpmyadmin/phpmyadmin 失败，将在启动时重试"
+    
+    print_info "基础镜像拉取完成（已存在的镜像会跳过）"
+    echo ""
     
     # 构建后端镜像
     print_info "构建后端镜像..."
@@ -150,7 +179,7 @@ show_status() {
 
 # 主函数
 main() {
-    print_info "开始部署 CodeHubix..."
+    print_info "开始部署 ai-agent-platform..."
     echo ""
     
     # 检查环境

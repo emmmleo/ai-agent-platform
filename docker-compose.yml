@@ -51,11 +51,11 @@ services:
       context: ./backend
       dockerfile: Dockerfile
       # 如果需要代理，请参考 PROXY_CONFIG.md 配置
-      # 方法1: 使用环境变量
+      # 方法1: 设置环境变量 HTTP_PROXY 和 HTTPS_PROXY，会自动传递
       # 方法2: 取消下面的注释并设置代理地址
-      # args:
-      #   HTTP_PROXY: http://10.7.47.36:7890
-      #   HTTPS_PROXY: http://10.7.47.36:7890
+      args:
+        HTTP_PROXY: ${HTTP_PROXY:-}
+        HTTPS_PROXY: ${HTTPS_PROXY:-}
     container_name: codehubix-backend
     environment:
       - SPRING_DATASOURCE_JDBC_URL=jdbc:mysql://mysql:3306/demo_db?useSSL=false&serverTimezone=Asia/Shanghai&characterEncoding=UTF-8
@@ -79,11 +79,11 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       # 如果需要代理，请参考 PROXY_CONFIG.md 配置
-      # 方法1: 使用环境变量
+      # 方法1: 设置环境变量 HTTP_PROXY 和 HTTPS_PROXY，会自动传递
       # 方法2: 取消下面的注释并设置代理地址
-      # args:
-      #   HTTP_PROXY: http://127.0.0.1:7890
-      #   HTTPS_PROXY: http://127.0.0.1:7890
+      args:
+        HTTP_PROXY: ${HTTP_PROXY:-}
+        HTTPS_PROXY: ${HTTPS_PROXY:-}
     container_name: codehubix-frontend
     ports:
       - "80:80"
