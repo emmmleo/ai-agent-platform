@@ -7,13 +7,15 @@ public class ChatResponse {
 
     private String answer;
     private String source; // 回答来源：direct/rag/workflow
+    private java.util.List<String> pluginsUsed; // 调用的插件名称列表
 
     public ChatResponse() {
     }
 
-    public ChatResponse(String answer, String source) {
+    public ChatResponse(String answer, String source, java.util.List<String> pluginsUsed) {
         this.answer = answer;
         this.source = source;
+        this.pluginsUsed = pluginsUsed;
     }
 
     public String getAnswer() {
@@ -30,6 +32,14 @@ public class ChatResponse {
 
     public void setSource(String source) {
         this.source = source;
+    }
+
+    public java.util.List<String> getPluginsUsed() {
+        return pluginsUsed;
+    }
+
+    public void setPluginsUsed(java.util.List<String> pluginsUsed) {
+        this.pluginsUsed = pluginsUsed;
     }
 }
 

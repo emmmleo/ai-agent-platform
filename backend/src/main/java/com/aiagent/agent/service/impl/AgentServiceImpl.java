@@ -32,9 +32,11 @@ import org.springframework.util.StringUtils;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 @Service
@@ -158,8 +160,8 @@ public class AgentServiceImpl implements AgentService {
         }
 
         try {
-            String answer = callAIModel(agent, request.getQuestion(), "");
-            return new TestAgentResponse(answer);
+            ModelAnswer modelAnswer = callAIModel(agent, request.getQuestion(), "");
+            return new TestAgentResponse(modelAnswer.content(), modelAnswer.pluginsUsed());
         } catch (Exception e) {
             log.error("测试智能体失败", e);
             throw new RuntimeException("测试智能体失败: " + e.getMessage(), e);
@@ -215,6 +217,7 @@ public class AgentServiceImpl implements AgentService {
 
         String answer;
         String source = "direct";
+        List<String> pluginsUsed = Collections.emptyList();
 
         try {
             // 1. 如果配置了知识库，进行RAG检索
@@ -238,21 +241,28 @@ public class AgentServiceImpl implements AgentService {
                     if (workflowResult != null && !workflowResult.isEmpty()) {
                         answer = workflowResult;
                         source = "workflow";
+                        pluginsUsed = Collections.emptyList();
                     } else {
                         // 工作流执行失败，回退到直接调用AI
-                        answer = callAIModel(agent, request.getQuestion(), context);
+                        ModelAnswer modelAnswer = callAIModel(agent, request.getQuestion(), context);
+                        answer = modelAnswer.content();
+                        pluginsUsed = modelAnswer.pluginsUsed();
                     }
                 } catch (Exception e) {
                     log.warn("工作流执行失败: {}", e.getMessage());
                     // 工作流执行失败，回退到直接调用AI
-                    answer = callAIModel(agent, request.getQuestion(), context);
+                    ModelAnswer modelAnswer = callAIModel(agent, request.getQuestion(), context);
+                    answer = modelAnswer.content();
+                    pluginsUsed = modelAnswer.pluginsUsed();
                 }
             } else {
                 // 3. 直接调用AI模型
-                answer = callAIModel(agent, request.getQuestion(), context);
+                ModelAnswer modelAnswer = callAIModel(agent, request.getQuestion(), context);
+                answer = modelAnswer.content();
+                pluginsUsed = modelAnswer.pluginsUsed();
             }
 
-            return new ChatResponse(answer, source);
+            return new ChatResponse(answer, source, pluginsUsed);
         } catch (Exception e) {
             log.error("智能体对话失败", e);
             throw new RuntimeException("智能体对话失败: " + e.getMessage(), e);
@@ -300,7 +310,7 @@ public class AgentServiceImpl implements AgentService {
     /**
      * 调用AI模型
      */
-    private String callAIModel(Agent agent, String question, String context) {
+    private ModelAnswer callAIModel(Agent agent, String question, String context) {
         String systemPrompt = agent.getSystemPrompt() != null ? agent.getSystemPrompt() : "";
         Map<String, Object> modelConfig = parseModelConfig(agent.getModelConfig());
 
@@ -310,7 +320,8 @@ public class AgentServiceImpl implements AgentService {
         PluginTooling pluginTooling = resolvePluginTooling(agent);
         log.info("解析插件成功");
         if (pluginTooling == null || pluginTooling.getTools().isEmpty()) {
-            return deepSeekClient.chat(systemPrompt, context, question, modelConfig);
+            String response = deepSeekClient.chat(systemPrompt, context, question, modelConfig);
+            return new ModelAnswer(response, Collections.emptyList());
         }
         return chatWithFunctionCalling(systemPrompt, context, question, modelConfig, pluginTooling);
     }
@@ -337,11 +348,11 @@ public class AgentServiceImpl implements AgentService {
         return openApiToolingBuilder.build(ordered);
     }
 
-    private String chatWithFunctionCalling(String systemPrompt,
-                                           String context,
-                                           String question,
-                                           Map<String, Object> modelConfig,
-                                           PluginTooling pluginTooling) {
+    private ModelAnswer chatWithFunctionCalling(String systemPrompt,
+                                                String context,
+                                                String question,
+                                                Map<String, Object> modelConfig,
+                                                PluginTooling pluginTooling) {
         List<DeepSeekClient.Message> messages = new ArrayList<>();
         if (StringUtils.hasText(systemPrompt)) {
             messages.add(new DeepSeekClient.Message("system", systemPrompt));
@@ -352,6 +363,7 @@ public class AgentServiceImpl implements AgentService {
         }
         userContent.append(question);
         messages.add(new DeepSeekClient.Message("user", userContent.toString()));
+        Set<String> invokedPlugins = new LinkedHashSet<>();
 
         for (int round = 0; round < MAX_TOOL_CALL_LOOPS; round++) {
             DeepSeekClient.ChatCompletionResponse response = deepSeekClient.chat(messages, pluginTooling.getTools(), modelConfig);
@@ -367,12 +379,15 @@ public class AgentServiceImpl implements AgentService {
                 if (!StringUtils.hasText(content)) {
                     throw new IllegalStateException("LLM响应缺少内容");
                 }
-                return content;
+                return new ModelAnswer(content, List.copyOf(invokedPlugins));
             }
             for (DeepSeekClient.ToolCall toolCall : toolCalls) {
                 log.info("执行 \"" + toolCall.getFunction().getName() + "\"");
-                String toolResponse = executeToolCall(toolCall, pluginTooling.getOperationRegistry());
-                messages.add(new DeepSeekClient.Message("tool", toolResponse, toolCall.getId()));
+                ToolCallResult toolResponse = executeToolCall(toolCall, pluginTooling.getOperationRegistry());
+                messages.add(new DeepSeekClient.Message("tool", toolResponse.payload(), toolCall.getId()));
+                if (StringUtils.hasText(toolResponse.pluginName())) {
+                    invokedPlugins.add(toolResponse.pluginName());
+                }
             }
         }
         throw new IllegalStateException("函数调用轮次数超限");
@@ -386,22 +401,23 @@ public class AgentServiceImpl implements AgentService {
         return first != null ? first.getMessage() : null;
     }
 
-    private String executeToolCall(DeepSeekClient.ToolCall toolCall,
-                                   Map<String, PluginOperationDescriptor> registry) {
+    private ToolCallResult executeToolCall(DeepSeekClient.ToolCall toolCall,
+                                           Map<String, PluginOperationDescriptor> registry) {
         if (toolCall == null || toolCall.getFunction() == null) {
-            return buildToolErrorPayload(null, "无效的tool call");
+            return new ToolCallResult(buildToolErrorPayload(null, "无效的tool call"), null);
         }
         String functionName = toolCall.getFunction().getName();
         PluginOperationDescriptor descriptor = registry.get(functionName);
         if (descriptor == null) {
             log.warn("未找到函数{}的插件描述，无法执行", functionName);
-            return buildToolErrorPayload(null, "未找到插件定义");
+            return new ToolCallResult(buildToolErrorPayload(null, "未找到插件定义"), null);
         }
         JsonNode arguments = parseArguments(toolCall.getFunction().getArguments());
         log.info("解析参数 \"" + functionName + "\"");
         PluginInvocationResult result = pluginInvocationClient.invoke(descriptor, arguments);
         log.info("返回结果 \"" + functionName + "\"");
-        return buildToolResultPayload(descriptor, result);
+        String payload = buildToolResultPayload(descriptor, result);
+        return new ToolCallResult(payload, descriptor.getPluginName());
     }
 
     private JsonNode parseArguments(String argumentsJson) {
@@ -451,6 +467,7 @@ public class AgentServiceImpl implements AgentService {
         payload.put("success", false);
         if (descriptor != null) {
             payload.put("pluginId", descriptor.getPluginId());
+            payload.put("pluginName", descriptor.getPluginName());
         }
         payload.put("errorMessage", message);
         return payload.toString();
@@ -525,4 +542,12 @@ public class AgentServiceImpl implements AgentService {
         return String.format("基于系统提示词：%s\n\n问题：%s\n\n回答：这是一个模拟回答。实际应用中，这里会调用AI模型（如OpenAI、Claude等）来生成回答。", 
             promptPreview, question);
         }
+
+    private record ModelAnswer(String content, List<String> pluginsUsed) {
+        private ModelAnswer {
+            pluginsUsed = pluginsUsed == null ? Collections.emptyList() : List.copyOf(pluginsUsed);
+        }
+    }
+
+    private record ToolCallResult(String payload, String pluginName) {}
 }

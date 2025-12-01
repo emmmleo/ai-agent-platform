@@ -31,6 +31,12 @@
                 <span class="message-role">{{ msg.type === 'user' ? '你' : '智能体' }}</span>
                 <span v-if="msg.source" class="message-source">{{ getSourceText(msg.source) }}</span>
               </div>
+              <div
+                v-if="msg.type === 'assistant' && msg.plugins && msg.plugins.length"
+                class="plugin-bubble"
+              >
+                调用插件：{{ msg.plugins.join('、') }}
+              </div>
               <div class="message-content">{{ msg.content }}</div>
             </div>
           </div>
@@ -65,7 +71,7 @@ const route = useRoute()
 
 const agentId = Number(route.params.id)
 const agent = ref<Agent | null>(null)
-const messages = ref<Array<{ type: string; content: string; source?: string }>>([])
+const messages = ref<Array<{ type: string; content: string; source?: string; plugins?: string[] }>>([])
 const inputQuestion = ref('')
 const loading = ref(false)
 const sending = ref(false)
@@ -117,6 +123,7 @@ const handleSend = async () => {
       type: 'assistant',
       content: response.answer,
       source: response.source,
+      plugins: response.pluginsUsed && response.pluginsUsed.length ? response.pluginsUsed : undefined,
     })
 
     // 滚动到底部
@@ -334,6 +341,17 @@ h1 {
   color: #2c3e50;
   border: 1px solid #e0e0e0;
   border-bottom-left-radius: 2px;
+}
+
+.plugin-bubble {
+  display: inline-block;
+  background: #e8f5e9;
+  border: 1px solid #c8e6c9;
+  color: #2c3e50;
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  margin-bottom: 6px;
 }
 
 .input-section {

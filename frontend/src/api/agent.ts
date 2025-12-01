@@ -46,6 +46,7 @@ export interface TestAgentRequest {
 
 export interface TestAgentResponse {
   answer: string
+  pluginsUsed?: string[]
 }
 
 export interface ChatRequest {
@@ -55,6 +56,7 @@ export interface ChatRequest {
 export interface ChatResponse {
   answer: string
   source: string // direct/rag/workflow
+  pluginsUsed?: string[]
 }
 
 // API 响应格式
@@ -109,13 +111,13 @@ export const deleteAgent = async (id: number): Promise<void> => {
 }
 
 // 测试智能体
-export const testAgent = async (id: number, question: string): Promise<string> => {
+export const testAgent = async (id: number, question: string): Promise<TestAgentResponse> => {
   const response = await post<ApiResponse<TestAgentResponse>>(
     `/v1/agents/${id}/test`,
     { question }
   )
   if (response.code === 200 && response.data) {
-    return response.data.answer
+    return response.data
   }
   throw new Error(response.message || '测试智能体失败')
 }
