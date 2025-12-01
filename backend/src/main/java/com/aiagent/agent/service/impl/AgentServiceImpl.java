@@ -1,5 +1,6 @@
 package com.aiagent.agent.service.impl;
 
+import com.aiagent.agent.client.DeepSeekClient;
 import com.aiagent.agent.dto.AgentResponse;
 import com.aiagent.agent.dto.ChatRequest;
 import com.aiagent.agent.dto.ChatResponse;
@@ -10,17 +11,30 @@ import com.aiagent.agent.dto.UpdateAgentRequest;
 import com.aiagent.agent.entity.Agent;
 import com.aiagent.agent.mapper.AgentMapper;
 import com.aiagent.agent.service.AgentService;
+import com.aiagent.plugin.client.PluginInvocationClient;
+import com.aiagent.plugin.client.PluginInvocationResult;
+import com.aiagent.plugin.entity.Plugin;
+import com.aiagent.plugin.mapper.PluginMapper;
+import com.aiagent.plugin.tooling.OpenApiToolingBuilder;
+import com.aiagent.plugin.tooling.PluginOperationDescriptor;
+import com.aiagent.plugin.tooling.PluginTooling;
 import com.aiagent.workflow.service.WorkflowExecutionService;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 @Service
@@ -28,16 +42,29 @@ public class AgentServiceImpl implements AgentService {
 
     private static final Logger log = LoggerFactory.getLogger(AgentServiceImpl.class);
     private static final String DEFAULT_STATUS = "draft";
+    private static final int MAX_TOOL_CALL_LOOPS = 5;
 
     private final AgentMapper agentMapper;
     private final WorkflowExecutionService workflowExecutionService;
+    private final DeepSeekClient deepSeekClient;
+    private final PluginMapper pluginMapper;
+    private final OpenApiToolingBuilder openApiToolingBuilder;
+    private final PluginInvocationClient pluginInvocationClient;
     private final ObjectMapper objectMapper;
 
     public AgentServiceImpl(AgentMapper agentMapper,
                            WorkflowExecutionService workflowExecutionService,
+                           DeepSeekClient deepSeekClient,
+                           PluginMapper pluginMapper,
+                           OpenApiToolingBuilder openApiToolingBuilder,
+                           PluginInvocationClient pluginInvocationClient,
                            ObjectMapper objectMapper) {
         this.agentMapper = agentMapper;
         this.workflowExecutionService = workflowExecutionService;
+        this.deepSeekClient = deepSeekClient;
+        this.pluginMapper = pluginMapper;
+        this.openApiToolingBuilder = openApiToolingBuilder;
+        this.pluginInvocationClient = pluginInvocationClient;
         this.objectMapper = objectMapper;
     }
 
@@ -130,11 +157,13 @@ public class AgentServiceImpl implements AgentService {
             throw new IllegalArgumentException("智能体不存在或无权限访问");
         }
 
-        // TODO: 这里应该调用实际的AI模型API
-        // 目前返回模拟的回答
-        String answer = generateMockAnswer(agent.getSystemPrompt(), request.getQuestion());
-        
-        return new TestAgentResponse(answer);
+        try {
+            String answer = callAIModel(agent, request.getQuestion(), "");
+            return new TestAgentResponse(answer);
+        } catch (Exception e) {
+            log.error("测试智能体失败", e);
+            throw new RuntimeException("测试智能体失败: " + e.getMessage(), e);
+        }
     }
 
     @Override
@@ -272,38 +301,170 @@ public class AgentServiceImpl implements AgentService {
      * 调用AI模型
      */
     private String callAIModel(Agent agent, String question, String context) {
-        // TODO: 实现实际的AI模型调用
-        // 1. 解析 modelConfig 获取模型配置（如OpenAI、Claude等）
-        // 2. 构建提示词：
-        //    - 系统提示词：agent.getSystemPrompt()
-        //    - 上下文（如果有）：context
-        //    - 用户问题：question
-        // 3. 调用AI模型API
-        // 4. 返回生成的回答
-
         String systemPrompt = agent.getSystemPrompt() != null ? agent.getSystemPrompt() : "";
-        String modelConfig = agent.getModelConfig() != null ? agent.getModelConfig() : "{}";
+        Map<String, Object> modelConfig = parseModelConfig(agent.getModelConfig());
 
-        log.info("调用AI模型：系统提示词长度: {}, 模型配置: {}, 问题: {}", 
-                systemPrompt.length(), modelConfig, question);
+        log.info("调用AI模型：系统提示词长度: {}, 模型配置字段: {}, 问题: {}",
+                systemPrompt.length(), modelConfig.keySet(), question);
 
-        // 构建完整提示
-        StringBuilder fullPrompt = new StringBuilder();
-        if (!systemPrompt.isEmpty()) {
-            fullPrompt.append("系统提示：").append(systemPrompt).append("\n\n");
+        PluginTooling pluginTooling = resolvePluginTooling(agent);
+        log.info("解析插件成功");
+        if (pluginTooling == null || pluginTooling.getTools().isEmpty()) {
+            return deepSeekClient.chat(systemPrompt, context, question, modelConfig);
         }
-        if (!context.isEmpty()) {
-            fullPrompt.append("上下文：").append(context).append("\n\n");
-        }
-        fullPrompt.append("用户问题：").append(question);
+        return chatWithFunctionCalling(systemPrompt, context, question, modelConfig, pluginTooling);
+    }
 
-        // 模拟AI回答
-        String promptPreview = systemPrompt.length() > 50 
-                ? systemPrompt.substring(0, 50) + "..." 
-                : systemPrompt;
-        
-        return String.format("基于系统提示词：%s\n\n问题：%s\n\n回答：这是一个模拟回答。实际应用中，这里会调用AI模型（如OpenAI、Claude等）来生成回答。\n\n提示：请配置 modelConfig 并集成实际的AI模型API。", 
-                promptPreview, question);
+    private PluginTooling resolvePluginTooling(Agent agent) {
+        if (agent.getPluginIds() == null || agent.getPluginIds().trim().isEmpty()) {
+            return null;
+        }
+        List<Long> pluginIds = parseJsonArray(agent.getPluginIds());
+        if (pluginIds.isEmpty()) {
+            return null;
+        }
+        List<Plugin> plugins = pluginMapper.findByIds(pluginIds);
+        if (plugins == null || plugins.isEmpty()) {
+            return null;
+        }
+        Map<Long, Plugin> pluginById = plugins.stream()
+            .filter(p -> p.getId() != null)
+            .collect(Collectors.toMap(Plugin::getId, p -> p, (left, right) -> left));
+        List<Plugin> ordered = pluginIds.stream()
+            .map(pluginById::get)
+            .filter(Objects::nonNull)
+            .collect(Collectors.toList());
+        return openApiToolingBuilder.build(ordered);
+    }
+
+    private String chatWithFunctionCalling(String systemPrompt,
+                                           String context,
+                                           String question,
+                                           Map<String, Object> modelConfig,
+                                           PluginTooling pluginTooling) {
+        List<DeepSeekClient.Message> messages = new ArrayList<>();
+        if (StringUtils.hasText(systemPrompt)) {
+            messages.add(new DeepSeekClient.Message("system", systemPrompt));
+        }
+        StringBuilder userContent = new StringBuilder();
+        if (StringUtils.hasText(context)) {
+            userContent.append("相关上下文：").append(context).append("\n\n");
+        }
+        userContent.append(question);
+        messages.add(new DeepSeekClient.Message("user", userContent.toString()));
+
+        for (int round = 0; round < MAX_TOOL_CALL_LOOPS; round++) {
+            DeepSeekClient.ChatCompletionResponse response = deepSeekClient.chat(messages, pluginTooling.getTools(), modelConfig);
+            DeepSeekClient.Message assistantMessage = extractAssistantMessage(response);
+            if (assistantMessage == null) {
+                throw new IllegalStateException("LLM响应为空");
+            }
+            messages.add(assistantMessage);
+
+            List<DeepSeekClient.ToolCall> toolCalls = assistantMessage.getToolCalls();
+            if (toolCalls == null || toolCalls.isEmpty()) {
+                String content = assistantMessage.getContent();
+                if (!StringUtils.hasText(content)) {
+                    throw new IllegalStateException("LLM响应缺少内容");
+                }
+                return content;
+            }
+            for (DeepSeekClient.ToolCall toolCall : toolCalls) {
+                log.info("执行 \"" + toolCall.getFunction().getName() + "\"");
+                String toolResponse = executeToolCall(toolCall, pluginTooling.getOperationRegistry());
+                messages.add(new DeepSeekClient.Message("tool", toolResponse, toolCall.getId()));
+            }
+        }
+        throw new IllegalStateException("函数调用轮次数超限");
+    }
+
+    private DeepSeekClient.Message extractAssistantMessage(DeepSeekClient.ChatCompletionResponse response) {
+        if (response == null || response.getChoices() == null || response.getChoices().isEmpty()) {
+            return null;
+        }
+        DeepSeekClient.Choice first = response.getChoices().get(0);
+        return first != null ? first.getMessage() : null;
+    }
+
+    private String executeToolCall(DeepSeekClient.ToolCall toolCall,
+                                   Map<String, PluginOperationDescriptor> registry) {
+        if (toolCall == null || toolCall.getFunction() == null) {
+            return buildToolErrorPayload(null, "无效的tool call");
+        }
+        String functionName = toolCall.getFunction().getName();
+        PluginOperationDescriptor descriptor = registry.get(functionName);
+        if (descriptor == null) {
+            log.warn("未找到函数{}的插件描述，无法执行", functionName);
+            return buildToolErrorPayload(null, "未找到插件定义");
+        }
+        JsonNode arguments = parseArguments(toolCall.getFunction().getArguments());
+        log.info("解析参数 \"" + functionName + "\"");
+        PluginInvocationResult result = pluginInvocationClient.invoke(descriptor, arguments);
+        log.info("返回结果 \"" + functionName + "\"");
+        return buildToolResultPayload(descriptor, result);
+    }
+
+    private JsonNode parseArguments(String argumentsJson) {
+        if (!StringUtils.hasText(argumentsJson)) {
+            return objectMapper.createObjectNode();
+        }
+        try {
+            return objectMapper.readTree(argumentsJson);
+        } catch (Exception e) {
+            log.warn("解析函数参数失败: {}", argumentsJson, e);
+            return objectMapper.createObjectNode();
+        }
+    }
+
+    private String buildToolResultPayload(PluginOperationDescriptor descriptor, PluginInvocationResult result) {
+        ObjectNode payload = objectMapper.createObjectNode();
+        if (descriptor != null) {
+            payload.put("pluginId", descriptor.getPluginId());
+            payload.put("pluginName", descriptor.getPluginName());
+            payload.put("endpoint", descriptor.getPath());
+        }
+        if (result == null) {
+            payload.put("success", false);
+            payload.put("errorMessage", "插件执行返回为空");
+            return payload.toString();
+        }
+        payload.put("success", result.isSuccess());
+        payload.put("statusCode", result.getStatusCode());
+        if (result.getBody() != null) {
+            JsonNode bodyNode = tryParseJson(result.getBody());
+            if (bodyNode != null) {
+                payload.set(result.isSuccess() ? "data" : "errorBody", bodyNode);
+            } else if (result.isSuccess()) {
+                payload.put("data", result.getBody());
+            } else {
+                payload.put("errorBody", result.getBody());
+            }
+        }
+        if (!result.isSuccess() && result.getErrorMessage() != null) {
+            payload.put("errorMessage", result.getErrorMessage());
+        }
+        return payload.toString();
+    }
+
+    private String buildToolErrorPayload(PluginOperationDescriptor descriptor, String message) {
+        ObjectNode payload = objectMapper.createObjectNode();
+        payload.put("success", false);
+        if (descriptor != null) {
+            payload.put("pluginId", descriptor.getPluginId());
+        }
+        payload.put("errorMessage", message);
+        return payload.toString();
+    }
+
+    private JsonNode tryParseJson(String content) {
+        if (!StringUtils.hasText(content)) {
+            return null;
+        }
+        try {
+            return objectMapper.readTree(content);
+        } catch (Exception ignored) {
+            return null;
+        }
     }
 
     /**
@@ -326,6 +487,18 @@ public class AgentServiceImpl implements AgentService {
         }
     }
 
+    private Map<String, Object> parseModelConfig(String modelConfigJson) {
+        if (modelConfigJson == null || modelConfigJson.trim().isEmpty()) {
+            return Collections.emptyMap();
+        }
+        try {
+            return objectMapper.readValue(modelConfigJson, new TypeReference<Map<String, Object>>() {});
+        } catch (Exception e) {
+            log.warn("解析modelConfig失败: {}", modelConfigJson, e);
+            return Collections.emptyMap();
+        }
+    }
+
     private AgentResponse toResponse(Agent agent) {
         return new AgentResponse(
                 agent.getId(),
@@ -344,12 +517,12 @@ public class AgentServiceImpl implements AgentService {
         );
     }
 
-    private String generateMockAnswer(String systemPrompt, String question) {
-        // 模拟AI回答，实际应该调用AI模型API
+        private String generateMockAnswer(String systemPrompt, String question) {
+        // 方法保留以兼容旧流程，但不再在生产路径中调用
         String promptPreview = systemPrompt != null && systemPrompt.length() > 50 
-                ? systemPrompt.substring(0, 50) + "..." 
-                : (systemPrompt != null ? systemPrompt : "无");
+            ? systemPrompt.substring(0, 50) + "..." 
+            : (systemPrompt != null ? systemPrompt : "无");
         return String.format("基于系统提示词：%s\n\n问题：%s\n\n回答：这是一个模拟回答。实际应用中，这里会调用AI模型（如OpenAI、Claude等）来生成回答。", 
-                promptPreview, question);
-    }
+            promptPreview, question);
+        }
 }

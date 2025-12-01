@@ -26,12 +26,12 @@ export interface UserProfile {
 // 登录
 export const login = async (data: LoginRequest): Promise<LoginResponse> => {
   const options: RequestOptions = { skipAuth: true }
-  return post<LoginResponse>('/api/v1/auth/login', data, options)
+  return post<LoginResponse>('/v1/auth/login', data, options)
 }
 
 // 注册
 export const register = async (data: RegisterRequest): Promise<UserProfile> => {
   const options: RequestOptions = { skipAuth: true }
-  return post<UserProfile>('/api/v1/auth/register', data, options)
+  return post<UserProfile>('/v1/auth/register', data, options)
 }
 

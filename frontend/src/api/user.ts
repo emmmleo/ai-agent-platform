@@ -11,6 +11,6 @@ export interface UserProfile {
 
 // 获取用户信息
 export const getUserProfile = async (): Promise<UserProfile> => {
-  return get<UserProfile>('/api/v1/user/profile')
+  return get<UserProfile>('/v1/user/profile')
 }
 

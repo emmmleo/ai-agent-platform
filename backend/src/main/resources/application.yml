@@ -37,3 +37,12 @@ server:
   port: 8082
   servlet:
     context-path: /api
+
+# LLM配置（使用DeepSeek）
+llm:
+  enabled: true
+  base-url: https://api.deepseek.com
+  model: deepseek-chat
+  api-key: sk-0b624e3926fe4e80b56de6de97d833e1
+  connect-timeout: 10s
+  read-timeout: 60s

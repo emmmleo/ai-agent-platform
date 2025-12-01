@@ -29,11 +29,58 @@ echo.
 REM 检查参数
 set CLEAN_MODE=0
 set NO_BUILD=0
+set BUILD_BACKEND=0
+set BUILD_FRONTEND=0
+set BUILD_SELECTION=0
+set SHOULD_BUILD=0
 
-if "%1"=="--clean" set CLEAN_MODE=1
-if "%1"=="--no-build" set NO_BUILD=1
-if "%1"=="--help" goto :help
-if "%1"=="-h" goto :help
+:parse_args
+if "%~1"=="" goto :post_args
+if /i "%~1"=="--clean" (
+    set CLEAN_MODE=1
+    goto :next_arg
+)
+if /i "%~1"=="--no-build" (
+    set NO_BUILD=1
+    set BUILD_SELECTION=1
+    set BUILD_BACKEND=0
+    set BUILD_FRONTEND=0
+    goto :next_arg
+)
+if /i "%~1"=="--build-backend" (
+    set BUILD_BACKEND=1
+    set BUILD_SELECTION=1
+    goto :next_arg
+)
+if /i "%~1"=="--build-frontend" (
+    set BUILD_FRONTEND=1
+    set BUILD_SELECTION=1
+    goto :next_arg
+)
+if /i "%~1"=="--build-all" (
+    set BUILD_BACKEND=1
+    set BUILD_FRONTEND=1
+    set BUILD_SELECTION=1
+    goto :next_arg
+)
+if /i "%~1"=="--help" goto :help
+if /i "%~1"=="-h" goto :help
+
+echo [WARN] 未知参数: %~1
+goto :help
+
+:next_arg
+shift
+goto :parse_args
+
+:post_args
+if "%BUILD_SELECTION%"=="0" (
+    set BUILD_BACKEND=1
+    set BUILD_FRONTEND=1
+)
+
+if %BUILD_BACKEND%==1 set SHOULD_BUILD=1
+if %BUILD_FRONTEND%==1 set SHOULD_BUILD=1
 
 REM 清理旧容器
 if %CLEAN_MODE%==1 (
@@ -44,92 +91,117 @@ if %CLEAN_MODE%==1 (
 )
 
 REM 构建镜像
-if %NO_BUILD%==0 (
-    echo [INFO] 开始构建镜像...
-    echo [INFO] 注意: 首次构建可能需要几分钟，请耐心等待...
-    echo [INFO] 提示: 如果镜像拉取失败，请配置Docker镜像加速器
-    echo [INFO] 运行 setup-docker-mirror.bat 查看配置方法
-    echo.
-    
-    REM 预先拉取所有所需的基础镜像，避免构建时拉取失败
-    echo [INFO] 预先拉取基础镜像（如果不存在）...
-    echo [INFO] 这可以避免构建过程中的网络问题...
-    echo.
-    
-    echo [INFO] 拉取后端构建镜像: maven:3.9-eclipse-temurin-21...
-    docker pull maven:3.9-eclipse-temurin-21 2>nul
-    if %errorlevel% neq 0 (
-        echo [WARN] 拉取 maven:3.9-eclipse-temurin-21 失败，将在构建时重试
-    )
-    
-    echo [INFO] 拉取后端运行镜像: eclipse-temurin:21-jre-alpine...
-    docker pull eclipse-temurin:21-jre-alpine 2>nul
-    if %errorlevel% neq 0 (
-        echo [WARN] 拉取 eclipse-temurin:21-jre-alpine 失败，将在构建时重试
-    )
-    
-    echo [INFO] 拉取前端构建镜像: node:20-alpine...
-    docker pull node:20-alpine 2>nul
-    if %errorlevel% neq 0 (
-        echo [WARN] 拉取 node:20-alpine 失败，将在构建时重试
-    )
-    
-    echo [INFO] 拉取前端运行镜像: nginx:alpine...
-    docker pull nginx:alpine 2>nul
-    if %errorlevel% neq 0 (
-        echo [WARN] 拉取 nginx:alpine 失败，将在构建时重试
-    )
-    
-    echo [INFO] 拉取数据库镜像: mysql:8.0...
-    docker pull mysql:8.0 2>nul
-    if %errorlevel% neq 0 (
-        echo [WARN] 拉取 mysql:8.0 失败，将在启动时重试
-    )
-    
-    echo [INFO] 拉取 phpMyAdmin 镜像: phpmyadmin/phpmyadmin...
-    docker pull phpmyadmin/phpmyadmin 2>nul
-    if %errorlevel% neq 0 (
-        echo [WARN] 拉取 phpmyadmin/phpmyadmin 失败，将在启动时重试
-    )
-    
-    echo [INFO] 基础镜像拉取完成（已存在的镜像会跳过）
-    echo.
-    
-    echo [INFO] 构建后端镜像...
-    docker-compose build backend
-    if %errorlevel% neq 0 (
-        echo [ERROR] 后端镜像构建失败
+if %NO_BUILD%==1 (
+    echo [INFO] 根据 --no-build 参数，跳过所有镜像构建  
+) else (
+    if %SHOULD_BUILD%==0 (
+        echo [INFO] 未选择需要构建的服务，跳过镜像构建  
+    ) else (
+        set TARGETS=
+        if %BUILD_BACKEND%==1 set TARGETS=后端  
+        if %BUILD_FRONTEND%==1 (
+            if defined TARGETS (
+                set TARGETS=!TARGETS!, 前端  
+            ) else (
+                set TARGETS=前端  
+            )
+        )
+
+        echo [INFO] 本次构建组件: !TARGETS!  
+        echo [INFO] 开始构建镜像...  
+        echo [INFO] 注意: 首次构建可能需要几分钟，请耐心等待...  
+        echo [INFO] 提示: 如果镜像拉取失败，请配置Docker镜像加速器  
+        echo [INFO] 运行 setup-docker-mirror.bat 查看配置方法  
         echo.
-        echo [INFO] 可能的原因和解决方案:
-        echo   1. 网络问题 - 无法访问Docker Hub
-        echo      解决方案: 配置Docker镜像加速器
-        echo      运行: setup-docker-mirror.bat 查看配置方法
+        
+        REM 预先拉取所需的基础镜像，避免构建时拉取失败
+        echo [INFO] 预先拉取基础镜像（如果不存在）...  
+        echo [INFO] 这可以避免构建过程中的网络问题...  
         echo.
-        echo   2. Docker Desktop资源不足
-        echo      解决方案: 增加Docker Desktop的内存和CPU分配
+
+        if %BUILD_BACKEND%==1 (
+            echo [INFO] 拉取后端构建镜像: maven:3.9-eclipse-temurin-21...  
+            docker pull maven:3.9-eclipse-temurin-21 2>nul  
+            if %errorlevel% neq 0 (
+                echo [WARN] 拉取 maven:3.9-eclipse-temurin-21 失败，将在构建时重试  
+            )
+            
+            echo [INFO] 拉取后端运行镜像: eclipse-temurin:21-jre-alpine...
+            docker pull eclipse-temurin:21-jre-alpine 2>nul
+            if %errorlevel% neq 0 (
+                echo [WARN] 拉取 eclipse-temurin:21-jre-alpine 失败，将在构建时重试
+            )
+        )
+
+        if %BUILD_FRONTEND%==1 (
+            echo [INFO] 拉取前端构建镜像: node:20-alpine...
+            docker pull node:20-alpine 2>nul
+            if %errorlevel% neq 0 (
+                echo [WARN] 拉取 node:20-alpine 失败，将在构建时重试
+            )
+            
+            echo [INFO] 拉取前端运行镜像: nginx:alpine...
+            docker pull nginx:alpine 2>nul
+            if %errorlevel% neq 0 (
+                echo [WARN] 拉取 nginx:alpine 失败，将在构建时重试
+            )
+        )
+
+        echo [INFO] 拉取数据库镜像: mysql:8.0...
+        docker pull mysql:8.0 2>nul
+        if %errorlevel% neq 0 (
+            echo [WARN] 拉取 mysql:8.0 失败，将在启动时重试
+        )
+        
+        echo [INFO] 拉取 phpMyAdmin 镜像: phpmyadmin/phpmyadmin...
+        docker pull phpmyadmin/phpmyadmin 2>nul
+        if %errorlevel% neq 0 (
+            echo [WARN] 拉取 phpmyadmin/phpmyadmin 失败，将在启动时重试
+        )
+        
+        echo [INFO] 基础镜像拉取完成（已存在的镜像会跳过）
         echo.
-        echo   3. 查看详细错误信息:
-        echo      docker-compose build --progress=plain backend
+        
+        if %BUILD_BACKEND%==1 (
+            echo [INFO] 构建后端镜像...
+            docker-compose build backend
+            if %errorlevel% neq 0 (
+                echo [ERROR] 后端镜像构建失败
+                echo.
+                echo [INFO] 可能的原因和解决方案:
+                echo   1. 网络问题 - 无法访问Docker Hub
+                echo      解决方案: 配置Docker镜像加速器
+                echo      运行: setup-docker-mirror.bat 查看配置方法
+                echo.
+                echo   2. Docker Desktop资源不足
+                echo      解决方案: 增加Docker Desktop的内存和CPU分配
+                echo.
+                echo   3. 查看详细错误信息:
+                echo      docker-compose build --progress=plain backend
+                echo.
+                echo   4. 尝试手动拉取镜像:
+                echo      docker pull maven:3.9-eclipse-temurin-21
+                echo      docker pull eclipse-temurin:21-jre-alpine
+                echo.
+                exit /b 1
+            )
+        )
+        
+        if %BUILD_FRONTEND%==1 (
+            echo [INFO] 构建前端镜像...
+            docker-compose build frontend
+            if %errorlevel% neq 0 (
+                echo [ERROR] 前端镜像构建失败
+                echo [INFO] 请检查:
+                echo   1. 网络连接是否正常
+                echo   2. 查看详细错误: docker-compose build frontend
+                exit /b 1
+            )
+        )
+        
+        echo [INFO] 镜像构建完成
         echo.
-        echo   4. 尝试手动拉取镜像:
-        echo      docker pull maven:3.9-eclipse-temurin-21
-        echo      docker pull eclipse-temurin:21-jre-alpine
-        echo.
-        exit /b 1
     )
-    
-    echo [INFO] 构建前端镜像...
-    docker-compose build frontend
-    if %errorlevel% neq 0 (
-        echo [ERROR] 前端镜像构建失败
-        echo [INFO] 请检查:
-        echo   1. 网络连接是否正常
-        echo   2. 查看详细错误: docker-compose build frontend
-        exit /b 1
-    )
-    
-    echo [INFO] 镜像构建完成
-    echo.
 )
 
 REM 启动服务
@@ -224,7 +296,7 @@ echo 前端应用:    http://localhost
 echo 后端API:     http://localhost:8082/api
 echo phpMyAdmin:  http://localhost:8081
 echo.
-echo 默认登录账号：
+echo 默认登录账号：  
 echo   管理员: admin / 123456
 echo   普通用户: user / 123456
 echo.
@@ -242,7 +314,10 @@ echo.
 echo 选项:
 echo   --clean      清理旧容器和数据卷后重新部署
 echo   --no-build   跳过镜像构建（使用已有镜像）
-echo   --help, -h   显示帮助信息
+echo   --build-backend    仅构建后端镜像   
+echo   --build-frontend   仅构建前端镜像   
+echo   --build-all        构建前后端镜像（可与其它选项组合）   
+echo   --help, -h   显示帮助信息  
 goto :end
 
 :end

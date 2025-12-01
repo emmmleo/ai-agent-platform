@@ -22,7 +22,7 @@ import java.util.Map;
  * 知识库控制器
  */
 @RestController
-@RequestMapping("/api/v1/knowledge-bases")
+@RequestMapping("/v1/knowledge-bases")
 public class KnowledgeBaseController {
 
     private static final Logger log = LoggerFactory.getLogger(KnowledgeBaseController.class);

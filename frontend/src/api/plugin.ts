@@ -35,9 +35,7 @@ export const registerPlugin = async (
   if (token) {
     headers['Authorization'] = `Bearer ${token}`
   }
-
-  const BASE_URL = import.meta.env.DEV ? '/api' : '/api'
-  const response = await fetch(`${BASE_URL}/v1/plugins/register`, {
+  const response = await fetch(`/api/v1/plugins/register`, {
     method: 'POST',
     headers,
     body: formData,
@@ -57,7 +55,7 @@ export const registerPlugin = async (
 
 // 获取插件列表
 export const getPlugins = async (): Promise<Plugin[]> => {
-  const response = await get<ApiResponse<Plugin[]>>('/api/v1/plugins')
+  const response = await get<ApiResponse<Plugin[]>>('/v1/plugins')
   if (response.code === 200 && response.data) {
     return response.data
   }
@@ -66,7 +64,7 @@ export const getPlugins = async (): Promise<Plugin[]> => {
 
 // 获取启用的插件列表
 export const getEnabledPlugins = async (): Promise<Plugin[]> => {
-  const response = await get<ApiResponse<Plugin[]>>('/api/v1/plugins/enabled')
+  const response = await get<ApiResponse<Plugin[]>>('/v1/plugins/enabled')
   if (response.code === 200 && response.data) {
     return response.data
   }
@@ -75,7 +73,7 @@ export const getEnabledPlugins = async (): Promise<Plugin[]> => {
 
 // 获取插件详情
 export const getPlugin = async (id: number): Promise<Plugin> => {
-  const response = await get<ApiResponse<Plugin>>(`/api/v1/plugins/${id}`)
+  const response = await get<ApiResponse<Plugin>>(`/v1/plugins/${id}`)
   if (response.code === 200 && response.data) {
     return response.data
   }
@@ -102,8 +100,7 @@ export const updatePlugin = async (
     headers['Authorization'] = `Bearer ${token}`
   }
 
-  const BASE_URL = import.meta.env.DEV ? '/api' : '/api'
-  const response = await fetch(`${BASE_URL}/v1/plugins/${id}`, {
+  const response = await fetch(`/api/v1/plugins/${id}`, {
     method: 'PUT',
     headers,
     body: formData,
@@ -131,8 +128,7 @@ export const togglePlugin = async (id: number, enabled: boolean): Promise<Plugin
     headers['Authorization'] = `Bearer ${token}`
   }
 
-  const BASE_URL = import.meta.env.DEV ? '/api' : '/api'
-  const response = await fetch(`${BASE_URL}/v1/plugins/${id}/toggle?enabled=${enabled}`, {
+  const response = await fetch(`/api/v1/plugins/${id}/toggle?enabled=${enabled}`, {
     method: 'PATCH',
     headers,
   })
@@ -151,7 +147,7 @@ export const togglePlugin = async (id: number, enabled: boolean): Promise<Plugin
 
 // 删除插件
 export const deletePlugin = async (id: number): Promise<void> => {
-  const response = await del<ApiResponse<void>>(`/api/v1/plugins/${id}`)
+  const response = await del<ApiResponse<void>>(`/v1/plugins/${id}`)
   if (response.code !== 200) {
     throw new Error(response.message || '删除插件失败')
   }

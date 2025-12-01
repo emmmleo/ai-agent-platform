@@ -66,7 +66,7 @@ interface ApiResponse<T> {
 
 // 获取智能体列表
 export const getAgents = async (): Promise<Agent[]> => {
-  const response = await get<ApiResponse<Agent[]>>('/api/v1/agents')
+  const response = await get<ApiResponse<Agent[]>>('/v1/agents')
   if (response.code === 200 && response.data) {
     return response.data
   }
@@ -75,7 +75,7 @@ export const getAgents = async (): Promise<Agent[]> => {
 
 // 获取智能体详情
 export const getAgent = async (id: number): Promise<Agent> => {
-  const response = await get<ApiResponse<Agent>>(`/api/v1/agents/${id}`)
+  const response = await get<ApiResponse<Agent>>(`/v1/agents/${id}`)
   if (response.code === 200 && response.data) {
     return response.data
   }
@@ -84,7 +84,7 @@ export const getAgent = async (id: number): Promise<Agent> => {
 
 // 创建智能体
 export const createAgent = async (data: CreateAgentRequest): Promise<Agent> => {
-  const response = await post<ApiResponse<Agent>>('/api/v1/agents', data)
+  const response = await post<ApiResponse<Agent>>('/v1/agents', data)
   if (response.code === 200 && response.data) {
     return response.data
   }
@@ -93,7 +93,7 @@ export const createAgent = async (data: CreateAgentRequest): Promise<Agent> => {
 
 // 更新智能体
 export const updateAgent = async (id: number, data: UpdateAgentRequest): Promise<Agent> => {
-  const response = await put<ApiResponse<Agent>>(`/api/v1/agents/${id}`, data)
+  const response = await put<ApiResponse<Agent>>(`/v1/agents/${id}`, data)
   if (response.code === 200 && response.data) {
     return response.data
   }
@@ -102,7 +102,7 @@ export const updateAgent = async (id: number, data: UpdateAgentRequest): Promise
 
 // 删除智能体
 export const deleteAgent = async (id: number): Promise<void> => {
-  const response = await del<ApiResponse<void>>(`/api/v1/agents/${id}`)
+  const response = await del<ApiResponse<void>>(`/v1/agents/${id}`)
   if (response.code !== 200) {
     throw new Error(response.message || '删除智能体失败')
   }
@@ -111,7 +111,7 @@ export const deleteAgent = async (id: number): Promise<void> => {
 // 测试智能体
 export const testAgent = async (id: number, question: string): Promise<string> => {
   const response = await post<ApiResponse<TestAgentResponse>>(
-    `/api/v1/agents/${id}/test`,
+    `/v1/agents/${id}/test`,
     { question }
   )
   if (response.code === 200 && response.data) {
@@ -122,7 +122,7 @@ export const testAgent = async (id: number, question: string): Promise<string> =
 
 // 发布智能体
 export const publishAgent = async (id: number): Promise<Agent> => {
-  const response = await post<ApiResponse<Agent>>(`/api/v1/agents/${id}/publish`, {})
+  const response = await post<ApiResponse<Agent>>(`/v1/agents/${id}/publish`, {})
   if (response.code === 200 && response.data) {
     return response.data
   }
@@ -132,7 +132,7 @@ export const publishAgent = async (id: number): Promise<Agent> => {
 // 与智能体对话
 export const chatWithAgent = async (id: number, question: string): Promise<ChatResponse> => {
   const response = await post<ApiResponse<ChatResponse>>(
-    `/api/v1/agents/${id}/chat`,
+    `/v1/agents/${id}/chat`,
     { question }
   )
   if (response.code === 200 && response.data) {

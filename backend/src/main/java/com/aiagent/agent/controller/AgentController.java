@@ -27,7 +27,7 @@ import org.slf4j.LoggerFactory;
  * 智能体控制器
  */
 @RestController
-@RequestMapping("/api/v1/agents")
+@RequestMapping("/v1/agents")
 public class AgentController {
 
     private static final Logger log = LoggerFactory.getLogger(AgentController.class);

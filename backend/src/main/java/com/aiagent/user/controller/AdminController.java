@@ -17,7 +17,7 @@ import java.util.stream.Collectors;
  * 提供用户管理功能
  */
 @RestController
-@RequestMapping("/api/v1/admin")
+@RequestMapping("/v1/admin")
 public class AdminController {
 
     private final UserService userService;

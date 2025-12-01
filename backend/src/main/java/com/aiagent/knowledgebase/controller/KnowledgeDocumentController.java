@@ -21,7 +21,7 @@ import java.util.Map;
  * 知识库文档控制器
  */
 @RestController
-@RequestMapping("/api/v1/knowledge-bases/{knowledgeBaseId}/documents")
+@RequestMapping("/v1/knowledge-bases/{knowledgeBaseId}/documents")
 public class KnowledgeDocumentController {
 
     private static final Logger log = LoggerFactory.getLogger(KnowledgeDocumentController.class);
