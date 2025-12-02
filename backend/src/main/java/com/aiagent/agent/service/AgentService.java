@@ -4,6 +4,8 @@ import com.aiagent.agent.dto.AgentResponse;
 import com.aiagent.agent.dto.ChatHistoryResponse;
 import com.aiagent.agent.dto.ChatRequest;
 import com.aiagent.agent.dto.ChatResponse;
+import com.aiagent.agent.dto.ChatSessionResponse;
+import com.aiagent.agent.dto.ChatSessionsResponse;
 import com.aiagent.agent.dto.CreateAgentRequest;
 import com.aiagent.agent.dto.TestAgentRequest;
 import com.aiagent.agent.dto.TestAgentResponse;
@@ -38,5 +40,11 @@ public interface AgentService {
     /**
      * 获取对话历史
      */
-    ChatHistoryResponse getConversation(Long id, Long userId);
+    ChatHistoryResponse getConversation(Long id, Long userId, Long sessionId);
+
+    ChatSessionsResponse listConversations(Long id, Long userId);
+
+    ChatSessionResponse createConversation(Long id, Long userId);
+
+    void deleteConversation(Long id, Long userId, Long sessionId);
 }

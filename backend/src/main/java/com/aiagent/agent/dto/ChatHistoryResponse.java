@@ -9,6 +9,7 @@ import java.util.List;
 public class ChatHistoryResponse {
 
     private List<ChatHistoryMessage> messages = new ArrayList<>();
+    private Long sessionId;
 
     public List<ChatHistoryMessage> getMessages() {
         return messages;
@@ -18,9 +19,18 @@ public class ChatHistoryResponse {
         this.messages = messages;
     }
 
+    public Long getSessionId() {
+        return sessionId;
+    }
+
+    public void setSessionId(Long sessionId) {
+        this.sessionId = sessionId;
+    }
+
     public static class ChatHistoryMessage {
         private String type;
         private String content;
+        private List<String> plugins;
 
         public String getType() {
             return type;
@@ -36,6 +46,14 @@ public class ChatHistoryResponse {
 
         public void setContent(String content) {
             this.content = content;
+        }
+
+        public List<String> getPlugins() {
+            return plugins;
+        }
+
+        public void setPlugins(List<String> plugins) {
+            this.plugins = plugins;
         }
     }
 }

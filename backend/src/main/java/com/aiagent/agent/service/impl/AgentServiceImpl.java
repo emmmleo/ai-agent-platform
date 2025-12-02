@@ -5,6 +5,8 @@ import com.aiagent.agent.dto.AgentResponse;
 import com.aiagent.agent.dto.ChatHistoryResponse;
 import com.aiagent.agent.dto.ChatRequest;
 import com.aiagent.agent.dto.ChatResponse;
+import com.aiagent.agent.dto.ChatSessionResponse;
+import com.aiagent.agent.dto.ChatSessionsResponse;
 import com.aiagent.agent.dto.CreateAgentRequest;
 import com.aiagent.agent.dto.TestAgentRequest;
 import com.aiagent.agent.dto.TestAgentResponse;
@@ -167,7 +169,7 @@ public class AgentServiceImpl implements AgentService {
         }
 
         try {
-            ModelAnswer modelAnswer = callAIModel(agent, userId, request.getQuestion(), "", false);
+            ModelAnswer modelAnswer = callAIModel(agent, userId, null, request.getQuestion(), "", false);
             return new TestAgentResponse(modelAnswer.content(), modelAnswer.pluginsUsed());
         } catch (Exception e) {
             log.error("测试智能体失败", e);
@@ -225,6 +227,7 @@ public class AgentServiceImpl implements AgentService {
         String answer;
         String source = "direct";
         List<String> pluginsUsed = Collections.emptyList();
+            Long sessionId = request.getSessionId();
 
         try {
             // 1. 如果配置了知识库，进行RAG检索
@@ -251,25 +254,28 @@ public class AgentServiceImpl implements AgentService {
                         pluginsUsed = Collections.emptyList();
                     } else {
                         // 工作流执行失败，回退到直接调用AI
-                        ModelAnswer modelAnswer = callAIModel(agent, userId, request.getQuestion(), context, true);
+                        ModelAnswer modelAnswer = callAIModel(agent, userId, sessionId, request.getQuestion(), context, true);
                         answer = modelAnswer.content();
                         pluginsUsed = modelAnswer.pluginsUsed();
+                        sessionId = modelAnswer.sessionId();
                     }
                 } catch (Exception e) {
                     log.warn("工作流执行失败: {}", e.getMessage());
                     // 工作流执行失败，回退到直接调用AI
-                    ModelAnswer modelAnswer = callAIModel(agent, userId, request.getQuestion(), context, true);
+                    ModelAnswer modelAnswer = callAIModel(agent, userId, sessionId, request.getQuestion(), context, true);
                     answer = modelAnswer.content();
                     pluginsUsed = modelAnswer.pluginsUsed();
+                    sessionId = modelAnswer.sessionId();
                 }
             } else {
                 // 3. 直接调用AI模型
-                ModelAnswer modelAnswer = callAIModel(agent, userId, request.getQuestion(), context, true);
+                ModelAnswer modelAnswer = callAIModel(agent, userId, sessionId, request.getQuestion(), context, true);
                 answer = modelAnswer.content();
                 pluginsUsed = modelAnswer.pluginsUsed();
+                sessionId = modelAnswer.sessionId();
             }
 
-            return new ChatResponse(answer, source, pluginsUsed);
+            return new ChatResponse(answer, source, pluginsUsed, sessionId);
         } catch (Exception e) {
             log.error("智能体对话失败", e);
             throw new RuntimeException("智能体对话失败: " + e.getMessage(), e);
@@ -277,18 +283,74 @@ public class AgentServiceImpl implements AgentService {
     }
 
     @Override
-    public ChatHistoryResponse getConversation(Long id, Long userId) {
+    public ChatHistoryResponse getConversation(Long id, Long userId, Long sessionId) {
+        if (sessionId == null) {
+            throw new IllegalArgumentException("会话ID不能为空");
+        }
         Agent agent = agentMapper.findByIdAndUserId(id, userId);
         if (agent == null) {
             throw new IllegalArgumentException("智能体不存在或无权限访问");
         }
-        AgentConversationContext context = conversationContextMapper.findByAgentAndUser(id, userId);
-        List<DeepSeekClient.Message> history = context == null
-                ? initializeConversation(agent.getSystemPrompt())
-                : parseConversationMessages(context.getMessages(), agent.getSystemPrompt());
+        AgentConversationContext context = conversationContextMapper.findByIdAndOwner(sessionId, id, userId);
+        if (context == null) {
+            throw new IllegalArgumentException("会话不存在或无权限访问");
+        }
+        List<DeepSeekClient.Message> history = parseConversationMessages(context.getMessages(), agent.getSystemPrompt());
         ChatHistoryResponse response = new ChatHistoryResponse();
+        response.setSessionId(sessionId);
         response.setMessages(toChatHistoryMessages(history));
         return response;
+    }
+
+    @Override
+    public ChatSessionsResponse listConversations(Long id, Long userId) {
+        Agent agent = agentMapper.findByIdAndUserId(id, userId);
+        if (agent == null) {
+            throw new IllegalArgumentException("智能体不存在或无权限访问");
+        }
+        List<AgentConversationContext> contexts = conversationContextMapper.findSessions(id, userId);
+        List<ChatSessionResponse> sessions = contexts.stream()
+            .map(ctx -> new ChatSessionResponse(ctx.getId(),
+                StringUtils.hasText(ctx.getTitle()) ? ctx.getTitle() : buildDefaultTitle(ctx.getId()),
+                ctx.getUpdatedAt()))
+                .collect(Collectors.toList());
+        ChatSessionsResponse response = new ChatSessionsResponse();
+        response.setSessions(sessions);
+        return response;
+    }
+
+    @Override
+    @Transactional
+    public ChatSessionResponse createConversation(Long id, Long userId) {
+        Agent agent = agentMapper.findByIdAndUserId(id, userId);
+        if (agent == null) {
+            throw new IllegalArgumentException("智能体不存在或无权限访问");
+        }
+        List<DeepSeekClient.Message> initial = initializeConversation(agent.getSystemPrompt());
+        Long sessionId = persistConversationContext(agent.getId(), userId, initial, null);
+        AgentConversationContext context = conversationContextMapper.findById(sessionId);
+        if (context == null) {
+            throw new IllegalStateException("创建会话失败");
+        }
+        String title = StringUtils.hasText(context.getTitle()) ? context.getTitle() : buildDefaultTitle(context.getId());
+        return new ChatSessionResponse(context.getId(), title, context.getUpdatedAt());
+    }
+
+    @Override
+    @Transactional
+    public void deleteConversation(Long id, Long userId, Long sessionId) {
+        if (sessionId == null) {
+            throw new IllegalArgumentException("会话ID不能为空");
+        }
+        Agent agent = agentMapper.findByIdAndUserId(id, userId);
+        if (agent == null) {
+            throw new IllegalArgumentException("智能体不存在或无权限访问");
+        }
+        AgentConversationContext context = conversationContextMapper.findByIdAndOwner(sessionId, id, userId);
+        if (context == null) {
+            throw new IllegalArgumentException("会话不存在或无权限访问");
+        }
+        conversationContextMapper.deleteById(sessionId);
     }
 
     /**
@@ -334,6 +396,7 @@ public class AgentServiceImpl implements AgentService {
      */
     private ModelAnswer callAIModel(Agent agent,
                                    Long userId,
+                                   Long sessionId,
                                    String question,
                                    String context,
                                    boolean persistContext) {
@@ -343,7 +406,7 @@ public class AgentServiceImpl implements AgentService {
         log.info("调用AI模型：系统提示词长度: {}, 模型配置字段: {}, 问题: {}",
                 systemPrompt.length(), modelConfig.keySet(), question);
 
-        ConversationState conversationState = prepareConversationState(agent, userId, systemPrompt, persistContext);
+        ConversationState conversationState = prepareConversationState(agent, userId, systemPrompt, persistContext, sessionId);
         List<DeepSeekClient.Message> conversation = conversationState.messages();
         DeepSeekClient client = createClient(conversation);
 
@@ -358,13 +421,14 @@ public class AgentServiceImpl implements AgentService {
                 throw new IllegalStateException("LLM响应为空");
             }
             conversation.add(assistantMessage);
-            modelAnswer = new ModelAnswer(assistantMessage.getContent(), Collections.emptyList());
+            modelAnswer = new ModelAnswer(assistantMessage.getContent(), Collections.emptyList(), null);
         } else {
             modelAnswer = chatWithFunctionCalling(client, conversation, context, question, modelConfig, pluginTooling);
         }
 
         if (persistContext) {
-            persistConversationContext(agent.getId(), userId, conversation, conversationState.existingContext());
+            Long persistedSessionId = persistConversationContext(agent.getId(), userId, conversation, conversationState.existingContext());
+            modelAnswer = new ModelAnswer(modelAnswer.content(), modelAnswer.pluginsUsed(), persistedSessionId);
         }
         return modelAnswer;
     }
@@ -411,7 +475,11 @@ public class AgentServiceImpl implements AgentService {
                 if (!StringUtils.hasText(content)) {
                     throw new IllegalStateException("LLM响应缺少内容");
                 }
-                return new ModelAnswer(content, List.copyOf(invokedPlugins));
+                List<String> plugins = new ArrayList<>(invokedPlugins);
+                if (!plugins.isEmpty()) {
+                    assistantMessage.setPlugins(new ArrayList<>(plugins));
+                }
+                return new ModelAnswer(content, plugins, null);
             }
             for (DeepSeekClient.ToolCall toolCall : toolCalls) {
                 log.info("执行 \"{}\"", toolCall.getFunction().getName());
@@ -518,15 +586,20 @@ public class AgentServiceImpl implements AgentService {
     private ConversationState prepareConversationState(Agent agent,
                                                        Long userId,
                                                        String systemPrompt,
-                                                       boolean persistContext) {
+                                                       boolean persistContext,
+                                                       Long sessionId) {
         if (!persistContext) {
             return new ConversationState(initializeConversation(systemPrompt), null);
         }
-        AgentConversationContext existing = conversationContextMapper.findByAgentAndUser(agent.getId(), userId);
-        List<DeepSeekClient.Message> history = existing == null
-                ? initializeConversation(systemPrompt)
-                : parseConversationMessages(existing.getMessages(), systemPrompt);
-        return new ConversationState(history, existing);
+        if (sessionId != null) {
+            AgentConversationContext existing = conversationContextMapper.findByIdAndOwner(sessionId, agent.getId(), userId);
+            if (existing == null) {
+                throw new IllegalArgumentException("会话不存在或无权限访问");
+            }
+            List<DeepSeekClient.Message> history = parseConversationMessages(existing.getMessages(), systemPrompt);
+            return new ConversationState(history, existing);
+        }
+        return new ConversationState(initializeConversation(systemPrompt), null);
     }
 
     private List<DeepSeekClient.Message> initializeConversation(String systemPrompt) {
@@ -577,7 +650,7 @@ public class AgentServiceImpl implements AgentService {
         return client;
     }
 
-    private void persistConversationContext(Long agentId,
+    private Long persistConversationContext(Long agentId,
                                             Long userId,
                                             List<DeepSeekClient.Message> messages,
                                             AgentConversationContext existingContext) {
@@ -587,13 +660,21 @@ public class AgentServiceImpl implements AgentService {
             AgentConversationContext context = new AgentConversationContext();
             context.setAgentId(agentId);
             context.setUserId(userId);
+            context.setTitle("会话");
             context.setMessages(payload);
             context.setCreatedAt(now);
             context.setUpdatedAt(now);
             conversationContextMapper.insert(context);
-        } else {
-            conversationContextMapper.updateMessages(agentId, userId, payload, now);
+            String title = buildDefaultTitle(context.getId());
+            conversationContextMapper.updateTitle(context.getId(), title, now);
+            return context.getId();
         }
+        conversationContextMapper.updateMessagesById(existingContext.getId(), payload, now);
+        return existingContext.getId();
+    }
+
+    private String buildDefaultTitle(Long id) {
+        return id == null ? "会话" : "会话 " + id;
     }
 
     private String serializeMessages(List<DeepSeekClient.Message> messages) {
@@ -629,6 +710,12 @@ public class AgentServiceImpl implements AgentService {
             ChatHistoryResponse.ChatHistoryMessage dto = new ChatHistoryResponse.ChatHistoryMessage();
             dto.setType(role);
             dto.setContent(message.getContent());
+            if ("assistant".equals(role)) {
+                List<String> plugins = message.getPlugins();
+                if (plugins != null && !plugins.isEmpty()) {
+                    dto.setPlugins(new ArrayList<>(plugins));
+                }
+            }
             result.add(dto);
         }
         return result;
@@ -696,7 +783,7 @@ public class AgentServiceImpl implements AgentService {
     private record ConversationState(List<DeepSeekClient.Message> messages,
                                      AgentConversationContext existingContext) {}
 
-    private record ModelAnswer(String content, List<String> pluginsUsed) {
+    private record ModelAnswer(String content, List<String> pluginsUsed, Long sessionId) {
         private ModelAnswer {
             pluginsUsed = pluginsUsed == null ? Collections.emptyList() : List.copyOf(pluginsUsed);
         }

@@ -43,7 +43,7 @@
                 v-if="msg.type === 'agent' && msg.plugins && msg.plugins.length"
                 class="plugin-bubble"
               >
-                调用插件：{{ msg.plugins.join('、') }}
+                已调用插件：{{ msg.plugins.join('、') }}
               </div>
               <div class="message-content">{{ msg.content }}</div>
             </div>
@@ -60,7 +60,7 @@
             @keydown.meta.enter="handleTest"
           ></textarea>
           <div class="input-actions">
-            <span class="hint">按 Ctrl+Enter 或 Cmd+Enter 发送</span>
+            <span class="hint">按 Ctrl+Enter 发送</span>
             <button @click="handleTest" :disabled="testing || !question.trim()" class="send-btn">
               {{ testing ? '测试中...' : '发送' }}
             </button>

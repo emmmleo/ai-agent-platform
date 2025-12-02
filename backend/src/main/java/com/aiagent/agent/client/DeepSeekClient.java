@@ -337,6 +337,8 @@ public class DeepSeekClient {
         @JsonProperty("tool_call_id")
         private String toolCallId;
         private String name;
+        @JsonProperty("plugins")
+        private List<String> plugins;
 
         public Message() {
         }
@@ -390,6 +392,14 @@ public class DeepSeekClient {
 
         public void setName(String name) {
             this.name = name;
+        }
+
+        public List<String> getPlugins() {
+            return plugins;
+        }
+
+        public void setPlugins(List<String> plugins) {
+            this.plugins = plugins;
         }
     }
 

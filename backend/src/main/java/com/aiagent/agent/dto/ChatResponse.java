@@ -8,14 +8,16 @@ public class ChatResponse {
     private String answer;
     private String source; // 回答来源：direct/rag/workflow
     private java.util.List<String> pluginsUsed; // 调用的插件名称列表
+    private Long sessionId;
 
     public ChatResponse() {
     }
 
-    public ChatResponse(String answer, String source, java.util.List<String> pluginsUsed) {
+    public ChatResponse(String answer, String source, java.util.List<String> pluginsUsed, Long sessionId) {
         this.answer = answer;
         this.source = source;
         this.pluginsUsed = pluginsUsed;
+        this.sessionId = sessionId;
     }
 
     public String getAnswer() {
@@ -40,6 +42,14 @@ public class ChatResponse {
 
     public void setPluginsUsed(java.util.List<String> pluginsUsed) {
         this.pluginsUsed = pluginsUsed;
+    }
+
+    public Long getSessionId() {
+        return sessionId;
+    }
+
+    public void setSessionId(Long sessionId) {
+        this.sessionId = sessionId;
     }
 }
 

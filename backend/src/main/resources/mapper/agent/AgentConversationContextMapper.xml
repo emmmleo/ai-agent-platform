@@ -9,34 +9,73 @@
         <id property="id" column="id"/>
         <result property="agentId" column="agent_id"/>
         <result property="userId" column="user_id"/>
+        <result property="title" column="title"/>
         <result property="messages" column="messages"/>
         <result property="createdAt" column="created_at"/>
         <result property="updatedAt" column="updated_at"/>
     </resultMap>
 
-    <select id="findByAgentAndUser" resultMap="AgentConversationContextResultMap">
+    <select id="findSessions" resultMap="AgentConversationContextResultMap">
         SELECT id,
                agent_id,
                user_id,
+               title,
                messages,
                created_at,
                updated_at
         FROM agent_conversation_context
         WHERE agent_id = #{agentId}
           AND user_id = #{userId}
+        ORDER BY updated_at DESC, id DESC
+    </select>
+
+    <select id="findById" parameterType="long" resultMap="AgentConversationContextResultMap">
+        SELECT id,
+               agent_id,
+               user_id,
+               title,
+               messages,
+               created_at,
+               updated_at
+        FROM agent_conversation_context
+        WHERE id = #{id}
+    </select>
+
+    <select id="findByIdAndOwner" resultMap="AgentConversationContextResultMap">
+        SELECT id,
+               agent_id,
+               user_id,
+               title,
+               messages,
+               created_at,
+               updated_at
+        FROM agent_conversation_context
+        WHERE id = #{id}
+          AND agent_id = #{agentId}
+          AND user_id = #{userId}
     </select>
 
     <insert id="insert" parameterType="com.aiagent.agent.entity.AgentConversationContext" useGeneratedKeys="true" keyProperty="id">
-        INSERT INTO agent_conversation_context (agent_id, user_id, messages, created_at, updated_at)
-        VALUES (#{agentId}, #{userId}, #{messages}, #{createdAt}, #{updatedAt})
+        INSERT INTO agent_conversation_context (agent_id, user_id, title, messages, created_at, updated_at)
+        VALUES (#{agentId}, #{userId}, #{title}, #{messages}, #{createdAt}, #{updatedAt})
     </insert>
 
-    <update id="updateMessages">
+    <update id="updateMessagesById">
         UPDATE agent_conversation_context
         SET messages = #{messages},
             updated_at = #{updatedAt}
-        WHERE agent_id = #{agentId}
-          AND user_id = #{userId}
+        WHERE id = #{id}
     </update>
+
+    <update id="updateTitle">
+        UPDATE agent_conversation_context
+        SET title = #{title},
+            updated_at = #{updatedAt}
+        WHERE id = #{id}
+    </update>
+
+    <delete id="deleteById" parameterType="long">
+        DELETE FROM agent_conversation_context WHERE id = #{id}
+    </delete>
 
 </mapper>

@@ -9,13 +9,24 @@ import java.time.LocalDateTime;
 @Mapper
 public interface AgentConversationContextMapper {
 
-    AgentConversationContext findByAgentAndUser(@Param("agentId") Long agentId,
-                                                @Param("userId") Long userId);
+    java.util.List<AgentConversationContext> findSessions(@Param("agentId") Long agentId,
+                                                          @Param("userId") Long userId);
+
+    AgentConversationContext findById(@Param("id") Long id);
+
+    AgentConversationContext findByIdAndOwner(@Param("id") Long id,
+                                              @Param("agentId") Long agentId,
+                                              @Param("userId") Long userId);
 
     int insert(AgentConversationContext context);
 
-    int updateMessages(@Param("agentId") Long agentId,
-                       @Param("userId") Long userId,
-                       @Param("messages") String messages,
-                       @Param("updatedAt") LocalDateTime updatedAt);
+    int updateMessagesById(@Param("id") Long id,
+                           @Param("messages") String messages,
+                           @Param("updatedAt") LocalDateTime updatedAt);
+
+    int updateTitle(@Param("id") Long id,
+                    @Param("title") String title,
+                    @Param("updatedAt") LocalDateTime updatedAt);
+
+    int deleteById(@Param("id") Long id);
 }

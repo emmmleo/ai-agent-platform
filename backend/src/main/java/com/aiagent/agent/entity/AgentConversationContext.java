@@ -10,6 +10,7 @@ public class AgentConversationContext {
     private Long id;
     private Long agentId;
     private Long userId;
+    private String title;
     private String messages;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
@@ -36,6 +37,14 @@ public class AgentConversationContext {
 
     public void setUserId(Long userId) {
         this.userId = userId;
+    }
+
+    public String getTitle() {
+        return title;
+    }
+
+    public void setTitle(String title) {
+        this.title = title;
     }
 
     public String getMessages() {
