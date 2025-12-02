@@ -59,6 +59,15 @@ export interface ChatResponse {
   pluginsUsed?: string[]
 }
 
+export interface ChatHistoryMessage {
+  type: string
+  content: string
+}
+
+export interface ChatHistoryResponse {
+  messages: ChatHistoryMessage[]
+}
+
 // API 响应格式
 interface ApiResponse<T> {
   code: number
@@ -141,4 +150,13 @@ export const chatWithAgent = async (id: number, question: string): Promise<ChatR
     return response.data
   }
   throw new Error(response.message || '对话失败')
+}
+
+// 获取对话历史
+export const getAgentConversation = async (id: number): Promise<ChatHistoryResponse> => {
+  const response = await get<ApiResponse<ChatHistoryResponse>>(`/v1/agents/${id}/conversation`)
+  if (response.code === 200 && response.data) {
+    return response.data
+  }
+  throw new Error(response.message || '获取对话历史失败')
 }

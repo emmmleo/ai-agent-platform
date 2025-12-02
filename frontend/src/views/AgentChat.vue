@@ -64,7 +64,7 @@
 <script setup lang="ts">
 import { ref, onMounted, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { getAgent, chatWithAgent, type Agent } from '../api/agent'
+import { getAgent, getAgentConversation, chatWithAgent, type Agent } from '../api/agent'
 
 const router = useRouter()
 const route = useRoute()
@@ -79,8 +79,6 @@ const error = ref<string | null>(null)
 
 // 加载智能体详情
 const loadAgent = async () => {
-  loading.value = true
-  error.value = null
   try {
     const a = await getAgent(agentId)
     agent.value = a
@@ -92,6 +90,34 @@ const loadAgent = async () => {
   } catch (e: any) {
     error.value = e.message || '加载智能体详情失败'
     console.error('加载智能体详情失败:', e)
+  }
+}
+
+const loadConversationHistory = async () => {
+  try {
+    const history = await getAgentConversation(agentId)
+    const restored = (history.messages || [])
+      .filter((msg) => msg.type === 'user' || msg.type === 'assistant')
+      .map((msg) => ({
+        type: msg.type,
+        content: msg.content,
+      }))
+    messages.value = restored
+  } catch (e: any) {
+    console.error('加载对话历史失败:', e)
+  }
+}
+
+const initializeChat = async () => {
+  loading.value = true
+  error.value = null
+  try {
+    await loadAgent()
+    if (!error.value) {
+      await loadConversationHistory()
+      await nextTick()
+      scrollToBottom()
+    }
   } finally {
     loading.value = false
   }
@@ -168,7 +194,7 @@ const getSourceText = (source: string) => {
 }
 
 onMounted(() => {
-  loadAgent()
+  initializeChat()
 })
 </script>
 

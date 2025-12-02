@@ -7,7 +7,9 @@ import java.util.Map;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.config.ConfigurableBeanFactory;
 import org.springframework.boot.web.client.RestTemplateBuilder;
+import org.springframework.context.annotation.Scope;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
@@ -29,10 +31,12 @@ import com.fasterxml.jackson.databind.ObjectMapper;
  * Lightweight DeepSeek chat-completion client.
  */
 @Component
+@Scope(ConfigurableBeanFactory.SCOPE_PROTOTYPE)
 public class DeepSeekClient {
 
     private static final Logger log = LoggerFactory.getLogger(DeepSeekClient.class);
     private static final String CHAT_COMPLETIONS_PATH = "/chat/completions";
+    private List<Message> messages;
 
     private final LlmProperties properties;
     private final RestTemplate restTemplate;
@@ -45,32 +49,47 @@ public class DeepSeekClient {
                 .setConnectTimeout(properties.getConnectTimeout())
                 .setReadTimeout(properties.getReadTimeout())
                 .build();
+        this.messages = new ArrayList<>();
     }
 
-    public String chat(String systemPrompt, String context, String question, Map<String, Object> modelConfig) {
-        List<Message> messages = new ArrayList<>();
-        if (StringUtils.hasText(systemPrompt)) {
-            messages.add(new Message("system", systemPrompt));
-        }
+    public void appendMessage(String role, String content) {
+        this.messages.add(new Message(role, content));
+    }
+
+    public void appendMessage(Message message) {
+        this.messages.add(message);
+    }
+
+    public Message chat(String context, String question, List<Tool> tools, Map<String, Object> modelConfig) {
         StringBuilder userContent = new StringBuilder();
         if (StringUtils.hasText(context)) {
             userContent.append("相关上下文：").append(context).append("\n\n");
         }
         userContent.append(question);
-        messages.add(new Message("user", userContent.toString()));
+        appendMessage("user", userContent.toString());
 
-        ChatCompletionResponse response = chat(messages, null, modelConfig);
+        ChatCompletionRequest payload = buildRequest(tools, modelConfig);
+        ChatCompletionResponse response = sendChat(payload);
         Message message = extractFirstMessage(response);
-        if (message == null || !StringUtils.hasText(message.getContent())) {
-            throw new IllegalStateException("LLM响应缺少内容");
+        if (message != null) {
+            appendMessage(message);
         }
-        return message.getContent();
+        return message;
     }
 
-    public ChatCompletionResponse chat(List<Message> messages, List<Tool> tools, Map<String, Object> modelConfig) {
+    public Message continueChat(List<Tool> tools, Map<String, Object> modelConfig) {
+        ChatCompletionRequest payload = buildRequest(tools, modelConfig);
+        ChatCompletionResponse response = sendChat(payload);
+        Message message = extractFirstMessage(response);
+        if (message != null) {
+            appendMessage(message);
+        }
+        return message;
+    }
+
+    private ChatCompletionResponse sendChat(ChatCompletionRequest payload) {
         ensureReady();
 
-        ChatCompletionRequest payload = buildRequest(messages, tools, modelConfig);
         HttpHeaders headers = buildHeaders();
         HttpEntity<ChatCompletionRequest> entity = new HttpEntity<>(payload, headers);
 
@@ -104,10 +123,10 @@ public class DeepSeekClient {
         return firstChoice != null ? firstChoice.getMessage() : null;
     }
 
-    private ChatCompletionRequest buildRequest(List<Message> messages, List<Tool> tools, Map<String, Object> modelConfig) {
+    private ChatCompletionRequest buildRequest(List<Tool> tools, Map<String, Object> modelConfig) {
         ChatCompletionRequest request = new ChatCompletionRequest();
         request.setModel(resolveString(modelConfig, "model", "modelName", "model_id", "modelId"));
-        request.setMessages(messages);
+        request.setMessages(this.messages);
         request.setTools(tools);
         request.setStream(Boolean.FALSE);
         request.setTemperature(resolveDouble(modelConfig, "temperature"));

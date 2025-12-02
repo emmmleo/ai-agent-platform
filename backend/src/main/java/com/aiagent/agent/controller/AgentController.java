@@ -1,6 +1,7 @@
 package com.aiagent.agent.controller;
 
 import com.aiagent.agent.dto.AgentResponse;
+import com.aiagent.agent.dto.ChatHistoryResponse;
 import com.aiagent.agent.dto.ChatRequest;
 import com.aiagent.agent.dto.ChatResponse;
 import com.aiagent.agent.dto.CreateAgentRequest;
@@ -187,6 +188,24 @@ public class AgentController {
         response.put("message", "success");
         response.put("data", chatResponse);
         
+        return ResponseEntity.ok(response);
+    }
+
+    /**
+     * 获取对话历史
+     */
+    @GetMapping("/{id}/conversation")
+    public ResponseEntity<Map<String, Object>> conversation(
+            @PathVariable Long id,
+            Authentication authentication) {
+        Long userId = getCurrentUserId(authentication);
+        ChatHistoryResponse history = agentService.getConversation(id, userId);
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("code", 200);
+        response.put("message", "success");
+        response.put("data", history);
+
         return ResponseEntity.ok(response);
     }
 

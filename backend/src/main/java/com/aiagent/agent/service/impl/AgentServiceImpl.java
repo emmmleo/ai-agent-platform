@@ -2,6 +2,7 @@ package com.aiagent.agent.service.impl;
 
 import com.aiagent.agent.client.DeepSeekClient;
 import com.aiagent.agent.dto.AgentResponse;
+import com.aiagent.agent.dto.ChatHistoryResponse;
 import com.aiagent.agent.dto.ChatRequest;
 import com.aiagent.agent.dto.ChatResponse;
 import com.aiagent.agent.dto.CreateAgentRequest;
@@ -9,6 +10,8 @@ import com.aiagent.agent.dto.TestAgentRequest;
 import com.aiagent.agent.dto.TestAgentResponse;
 import com.aiagent.agent.dto.UpdateAgentRequest;
 import com.aiagent.agent.entity.Agent;
+import com.aiagent.agent.entity.AgentConversationContext;
+import com.aiagent.agent.mapper.AgentConversationContextMapper;
 import com.aiagent.agent.mapper.AgentMapper;
 import com.aiagent.agent.service.AgentService;
 import com.aiagent.plugin.client.PluginInvocationClient;
@@ -25,6 +28,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -48,7 +52,8 @@ public class AgentServiceImpl implements AgentService {
 
     private final AgentMapper agentMapper;
     private final WorkflowExecutionService workflowExecutionService;
-    private final DeepSeekClient deepSeekClient;
+    private final AgentConversationContextMapper conversationContextMapper;
+    private final ObjectProvider<DeepSeekClient> deepSeekClientProvider;
     private final PluginMapper pluginMapper;
     private final OpenApiToolingBuilder openApiToolingBuilder;
     private final PluginInvocationClient pluginInvocationClient;
@@ -56,14 +61,16 @@ public class AgentServiceImpl implements AgentService {
 
     public AgentServiceImpl(AgentMapper agentMapper,
                            WorkflowExecutionService workflowExecutionService,
-                           DeepSeekClient deepSeekClient,
+                           AgentConversationContextMapper conversationContextMapper,
+                           ObjectProvider<DeepSeekClient> deepSeekClientProvider,
                            PluginMapper pluginMapper,
                            OpenApiToolingBuilder openApiToolingBuilder,
                            PluginInvocationClient pluginInvocationClient,
                            ObjectMapper objectMapper) {
         this.agentMapper = agentMapper;
         this.workflowExecutionService = workflowExecutionService;
-        this.deepSeekClient = deepSeekClient;
+        this.conversationContextMapper = conversationContextMapper;
+        this.deepSeekClientProvider = deepSeekClientProvider;
         this.pluginMapper = pluginMapper;
         this.openApiToolingBuilder = openApiToolingBuilder;
         this.pluginInvocationClient = pluginInvocationClient;
@@ -160,7 +167,7 @@ public class AgentServiceImpl implements AgentService {
         }
 
         try {
-            ModelAnswer modelAnswer = callAIModel(agent, request.getQuestion(), "");
+            ModelAnswer modelAnswer = callAIModel(agent, userId, request.getQuestion(), "", false);
             return new TestAgentResponse(modelAnswer.content(), modelAnswer.pluginsUsed());
         } catch (Exception e) {
             log.error("测试智能体失败", e);
@@ -244,20 +251,20 @@ public class AgentServiceImpl implements AgentService {
                         pluginsUsed = Collections.emptyList();
                     } else {
                         // 工作流执行失败，回退到直接调用AI
-                        ModelAnswer modelAnswer = callAIModel(agent, request.getQuestion(), context);
+                        ModelAnswer modelAnswer = callAIModel(agent, userId, request.getQuestion(), context, true);
                         answer = modelAnswer.content();
                         pluginsUsed = modelAnswer.pluginsUsed();
                     }
                 } catch (Exception e) {
                     log.warn("工作流执行失败: {}", e.getMessage());
                     // 工作流执行失败，回退到直接调用AI
-                    ModelAnswer modelAnswer = callAIModel(agent, request.getQuestion(), context);
+                    ModelAnswer modelAnswer = callAIModel(agent, userId, request.getQuestion(), context, true);
                     answer = modelAnswer.content();
                     pluginsUsed = modelAnswer.pluginsUsed();
                 }
             } else {
                 // 3. 直接调用AI模型
-                ModelAnswer modelAnswer = callAIModel(agent, request.getQuestion(), context);
+                ModelAnswer modelAnswer = callAIModel(agent, userId, request.getQuestion(), context, true);
                 answer = modelAnswer.content();
                 pluginsUsed = modelAnswer.pluginsUsed();
             }
@@ -267,6 +274,21 @@ public class AgentServiceImpl implements AgentService {
             log.error("智能体对话失败", e);
             throw new RuntimeException("智能体对话失败: " + e.getMessage(), e);
         }
+    }
+
+    @Override
+    public ChatHistoryResponse getConversation(Long id, Long userId) {
+        Agent agent = agentMapper.findByIdAndUserId(id, userId);
+        if (agent == null) {
+            throw new IllegalArgumentException("智能体不存在或无权限访问");
+        }
+        AgentConversationContext context = conversationContextMapper.findByAgentAndUser(id, userId);
+        List<DeepSeekClient.Message> history = context == null
+                ? initializeConversation(agent.getSystemPrompt())
+                : parseConversationMessages(context.getMessages(), agent.getSystemPrompt());
+        ChatHistoryResponse response = new ChatHistoryResponse();
+        response.setMessages(toChatHistoryMessages(history));
+        return response;
     }
 
     /**
@@ -310,20 +332,41 @@ public class AgentServiceImpl implements AgentService {
     /**
      * 调用AI模型
      */
-    private ModelAnswer callAIModel(Agent agent, String question, String context) {
+    private ModelAnswer callAIModel(Agent agent,
+                                   Long userId,
+                                   String question,
+                                   String context,
+                                   boolean persistContext) {
         String systemPrompt = agent.getSystemPrompt() != null ? agent.getSystemPrompt() : "";
         Map<String, Object> modelConfig = parseModelConfig(agent.getModelConfig());
 
         log.info("调用AI模型：系统提示词长度: {}, 模型配置字段: {}, 问题: {}",
                 systemPrompt.length(), modelConfig.keySet(), question);
 
+        ConversationState conversationState = prepareConversationState(agent, userId, systemPrompt, persistContext);
+        List<DeepSeekClient.Message> conversation = conversationState.messages();
+        DeepSeekClient client = createClient(conversation);
+
+        String userContent = buildUserContent(context, question);
+        conversation.add(new DeepSeekClient.Message("user", userContent));
+
         PluginTooling pluginTooling = resolvePluginTooling(agent);
-        log.info("解析插件成功");
+        ModelAnswer modelAnswer;
         if (pluginTooling == null || pluginTooling.getTools().isEmpty()) {
-            String response = deepSeekClient.chat(systemPrompt, context, question, modelConfig);
-            return new ModelAnswer(response, Collections.emptyList());
+            DeepSeekClient.Message assistantMessage = client.chat(context, question, null, modelConfig);
+            if (assistantMessage == null || !StringUtils.hasText(assistantMessage.getContent())) {
+                throw new IllegalStateException("LLM响应为空");
+            }
+            conversation.add(assistantMessage);
+            modelAnswer = new ModelAnswer(assistantMessage.getContent(), Collections.emptyList());
+        } else {
+            modelAnswer = chatWithFunctionCalling(client, conversation, context, question, modelConfig, pluginTooling);
         }
-        return chatWithFunctionCalling(systemPrompt, context, question, modelConfig, pluginTooling);
+
+        if (persistContext) {
+            persistConversationContext(agent.getId(), userId, conversation, conversationState.existingContext());
+        }
+        return modelAnswer;
     }
 
     private PluginTooling resolvePluginTooling(Agent agent) {
@@ -348,31 +391,20 @@ public class AgentServiceImpl implements AgentService {
         return openApiToolingBuilder.build(ordered);
     }
 
-    private ModelAnswer chatWithFunctionCalling(String systemPrompt,
+    private ModelAnswer chatWithFunctionCalling(DeepSeekClient client,
+                                                List<DeepSeekClient.Message> conversation,
                                                 String context,
                                                 String question,
                                                 Map<String, Object> modelConfig,
                                                 PluginTooling pluginTooling) {
-        List<DeepSeekClient.Message> messages = new ArrayList<>();
-        if (StringUtils.hasText(systemPrompt)) {
-            messages.add(new DeepSeekClient.Message("system", systemPrompt));
-        }
-        StringBuilder userContent = new StringBuilder();
-        if (StringUtils.hasText(context)) {
-            userContent.append("相关上下文：").append(context).append("\n\n");
-        }
-        userContent.append(question);
-        messages.add(new DeepSeekClient.Message("user", userContent.toString()));
         Set<String> invokedPlugins = new LinkedHashSet<>();
+        DeepSeekClient.Message assistantMessage = client.chat(context, question, pluginTooling.getTools(), modelConfig);
+        if (assistantMessage == null) {
+            throw new IllegalStateException("LLM响应为空");
+        }
+        conversation.add(assistantMessage);
 
         for (int round = 0; round < MAX_TOOL_CALL_LOOPS; round++) {
-            DeepSeekClient.ChatCompletionResponse response = deepSeekClient.chat(messages, pluginTooling.getTools(), modelConfig);
-            DeepSeekClient.Message assistantMessage = extractAssistantMessage(response);
-            if (assistantMessage == null) {
-                throw new IllegalStateException("LLM响应为空");
-            }
-            messages.add(assistantMessage);
-
             List<DeepSeekClient.ToolCall> toolCalls = assistantMessage.getToolCalls();
             if (toolCalls == null || toolCalls.isEmpty()) {
                 String content = assistantMessage.getContent();
@@ -382,23 +414,22 @@ public class AgentServiceImpl implements AgentService {
                 return new ModelAnswer(content, List.copyOf(invokedPlugins));
             }
             for (DeepSeekClient.ToolCall toolCall : toolCalls) {
-                log.info("执行 \"" + toolCall.getFunction().getName() + "\"");
+                log.info("执行 \"{}\"", toolCall.getFunction().getName());
                 ToolCallResult toolResponse = executeToolCall(toolCall, pluginTooling.getOperationRegistry());
-                messages.add(new DeepSeekClient.Message("tool", toolResponse.payload(), toolCall.getId()));
+                DeepSeekClient.Message toolMessage = new DeepSeekClient.Message("tool", toolResponse.payload(), toolCall.getId());
+                client.appendMessage(toolMessage);
+                conversation.add(toolMessage);
                 if (StringUtils.hasText(toolResponse.pluginName())) {
                     invokedPlugins.add(toolResponse.pluginName());
                 }
             }
+            assistantMessage = client.continueChat(pluginTooling.getTools(), modelConfig);
+            if (assistantMessage == null) {
+                throw new IllegalStateException("LLM响应为空");
+            }
+            conversation.add(assistantMessage);
         }
         throw new IllegalStateException("函数调用轮次数超限");
-    }
-
-    private DeepSeekClient.Message extractAssistantMessage(DeepSeekClient.ChatCompletionResponse response) {
-        if (response == null || response.getChoices() == null || response.getChoices().isEmpty()) {
-            return null;
-        }
-        DeepSeekClient.Choice first = response.getChoices().get(0);
-        return first != null ? first.getMessage() : null;
     }
 
     private ToolCallResult executeToolCall(DeepSeekClient.ToolCall toolCall,
@@ -484,6 +515,125 @@ public class AgentServiceImpl implements AgentService {
         }
     }
 
+    private ConversationState prepareConversationState(Agent agent,
+                                                       Long userId,
+                                                       String systemPrompt,
+                                                       boolean persistContext) {
+        if (!persistContext) {
+            return new ConversationState(initializeConversation(systemPrompt), null);
+        }
+        AgentConversationContext existing = conversationContextMapper.findByAgentAndUser(agent.getId(), userId);
+        List<DeepSeekClient.Message> history = existing == null
+                ? initializeConversation(systemPrompt)
+                : parseConversationMessages(existing.getMessages(), systemPrompt);
+        return new ConversationState(history, existing);
+    }
+
+    private List<DeepSeekClient.Message> initializeConversation(String systemPrompt) {
+        List<DeepSeekClient.Message> history = new ArrayList<>();
+        if (StringUtils.hasText(systemPrompt)) {
+            history.add(new DeepSeekClient.Message("system", systemPrompt));
+        }
+        return history;
+    }
+
+    private List<DeepSeekClient.Message> parseConversationMessages(String payload, String systemPrompt) {
+        if (!StringUtils.hasText(payload)) {
+            return initializeConversation(systemPrompt);
+        }
+        try {
+            List<DeepSeekClient.Message> history = objectMapper.readValue(
+                    payload, new TypeReference<List<DeepSeekClient.Message>>() {});
+            history = history == null ? new ArrayList<>() : new ArrayList<>(history);
+            ensureSystemPrompt(history, systemPrompt);
+            return history;
+        } catch (Exception e) {
+            log.warn("解析对话上下文失败，将重新初始化: {}", e.getMessage());
+            return initializeConversation(systemPrompt);
+        }
+    }
+
+    private void ensureSystemPrompt(List<DeepSeekClient.Message> history, String systemPrompt) {
+        if (!StringUtils.hasText(systemPrompt)) {
+            return;
+        }
+        if (history.isEmpty()) {
+            history.add(new DeepSeekClient.Message("system", systemPrompt));
+            return;
+        }
+        DeepSeekClient.Message first = history.get(0);
+        if ("system".equals(first.getRole())) {
+            first.setContent(systemPrompt);
+        } else {
+            history.add(0, new DeepSeekClient.Message("system", systemPrompt));
+        }
+    }
+
+    private DeepSeekClient createClient(List<DeepSeekClient.Message> history) {
+        DeepSeekClient client = deepSeekClientProvider.getObject();
+        if (history != null) {
+            history.forEach(client::appendMessage);
+        }
+        return client;
+    }
+
+    private void persistConversationContext(Long agentId,
+                                            Long userId,
+                                            List<DeepSeekClient.Message> messages,
+                                            AgentConversationContext existingContext) {
+        String payload = serializeMessages(messages);
+        LocalDateTime now = LocalDateTime.now();
+        if (existingContext == null) {
+            AgentConversationContext context = new AgentConversationContext();
+            context.setAgentId(agentId);
+            context.setUserId(userId);
+            context.setMessages(payload);
+            context.setCreatedAt(now);
+            context.setUpdatedAt(now);
+            conversationContextMapper.insert(context);
+        } else {
+            conversationContextMapper.updateMessages(agentId, userId, payload, now);
+        }
+    }
+
+    private String serializeMessages(List<DeepSeekClient.Message> messages) {
+        try {
+            return objectMapper.writeValueAsString(messages);
+        } catch (Exception e) {
+            throw new IllegalStateException("序列化对话上下文失败", e);
+        }
+    }
+
+    private String buildUserContent(String context, String question) {
+        StringBuilder builder = new StringBuilder();
+        if (StringUtils.hasText(context)) {
+            builder.append("相关上下文：").append(context).append("\n\n");
+        }
+        builder.append(question);
+        return builder.toString();
+    }
+
+    private List<ChatHistoryResponse.ChatHistoryMessage> toChatHistoryMessages(List<DeepSeekClient.Message> history) {
+        if (history == null || history.isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<ChatHistoryResponse.ChatHistoryMessage> result = new ArrayList<>();
+        for (DeepSeekClient.Message message : history) {
+            if (message == null || !StringUtils.hasText(message.getContent())) {
+                continue;
+            }
+            String role = message.getRole();
+            if (!"user".equals(role) && !"assistant".equals(role)) {
+                continue;
+            }
+            ChatHistoryResponse.ChatHistoryMessage dto = new ChatHistoryResponse.ChatHistoryMessage();
+            dto.setType(role);
+            dto.setContent(message.getContent());
+            result.add(dto);
+        }
+        return result;
+    }
+
     /**
      * 解析JSON数组字符串
      */
@@ -542,6 +692,9 @@ public class AgentServiceImpl implements AgentService {
         return String.format("基于系统提示词：%s\n\n问题：%s\n\n回答：这是一个模拟回答。实际应用中，这里会调用AI模型（如OpenAI、Claude等）来生成回答。", 
             promptPreview, question);
         }
+
+    private record ConversationState(List<DeepSeekClient.Message> messages,
+                                     AgentConversationContext existingContext) {}
 
     private record ModelAnswer(String content, List<String> pluginsUsed) {
         private ModelAnswer {

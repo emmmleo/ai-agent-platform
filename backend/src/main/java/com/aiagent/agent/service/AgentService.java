@@ -1,6 +1,7 @@
 package com.aiagent.agent.service;
 
 import com.aiagent.agent.dto.AgentResponse;
+import com.aiagent.agent.dto.ChatHistoryResponse;
 import com.aiagent.agent.dto.ChatRequest;
 import com.aiagent.agent.dto.ChatResponse;
 import com.aiagent.agent.dto.CreateAgentRequest;
@@ -33,4 +34,9 @@ public interface AgentService {
      * 与智能体对话
      */
     ChatResponse chat(Long id, Long userId, ChatRequest request);
+
+    /**
+     * 获取对话历史
+     */
+    ChatHistoryResponse getConversation(Long id, Long userId);
 }
