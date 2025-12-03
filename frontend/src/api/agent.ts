@@ -46,6 +46,7 @@ export interface TestAgentRequest {
 
 export interface TestAgentResponse {
   answer: string
+  pluginsUsed?: string[]
 }
 
 export interface ChatRequest {
@@ -55,6 +56,29 @@ export interface ChatRequest {
 export interface ChatResponse {
   answer: string
   source: string // direct/rag/workflow
+  pluginsUsed?: string[]
+  sessionId?: number
+}
+
+export interface ChatHistoryMessage {
+  type: string
+  content: string
+  plugins?: string[]
+}
+
+export interface ChatHistoryResponse {
+  messages: ChatHistoryMessage[]
+  sessionId?: number
+}
+
+export interface ChatSession {
+  id: number
+  title: string
+  updatedAt: string
+}
+
+export interface ChatSessionsResponse {
+  sessions: ChatSession[]
 }
 
 // API 响应格式
@@ -66,7 +90,7 @@ interface ApiResponse<T> {
 
 // 获取智能体列表
 export const getAgents = async (): Promise<Agent[]> => {
-  const response = await get<ApiResponse<Agent[]>>('/api/v1/agents')
+  const response = await get<ApiResponse<Agent[]>>('/v1/agents')
   if (response.code === 200 && response.data) {
     return response.data
   }
@@ -75,7 +99,7 @@ export const getAgents = async (): Promise<Agent[]> => {
 
 // 获取智能体详情
 export const getAgent = async (id: number): Promise<Agent> => {
-  const response = await get<ApiResponse<Agent>>(`/api/v1/agents/${id}`)
+  const response = await get<ApiResponse<Agent>>(`/v1/agents/${id}`)
   if (response.code === 200 && response.data) {
     return response.data
   }
@@ -84,7 +108,7 @@ export const getAgent = async (id: number): Promise<Agent> => {
 
 // 创建智能体
 export const createAgent = async (data: CreateAgentRequest): Promise<Agent> => {
-  const response = await post<ApiResponse<Agent>>('/api/v1/agents', data)
+  const response = await post<ApiResponse<Agent>>('/v1/agents', data)
   if (response.code === 200 && response.data) {
     return response.data
   }
@@ -93,7 +117,7 @@ export const createAgent = async (data: CreateAgentRequest): Promise<Agent> => {
 
 // 更新智能体
 export const updateAgent = async (id: number, data: UpdateAgentRequest): Promise<Agent> => {
-  const response = await put<ApiResponse<Agent>>(`/api/v1/agents/${id}`, data)
+  const response = await put<ApiResponse<Agent>>(`/v1/agents/${id}`, data)
   if (response.code === 200 && response.data) {
     return response.data
   }
@@ -102,27 +126,27 @@ export const updateAgent = async (id: number, data: UpdateAgentRequest): Promise
 
 // 删除智能体
 export const deleteAgent = async (id: number): Promise<void> => {
-  const response = await del<ApiResponse<void>>(`/api/v1/agents/${id}`)
+  const response = await del<ApiResponse<void>>(`/v1/agents/${id}`)
   if (response.code !== 200) {
     throw new Error(response.message || '删除智能体失败')
   }
 }
 
 // 测试智能体
-export const testAgent = async (id: number, question: string): Promise<string> => {
+export const testAgent = async (id: number, question: string): Promise<TestAgentResponse> => {
   const response = await post<ApiResponse<TestAgentResponse>>(
-    `/api/v1/agents/${id}/test`,
+    `/v1/agents/${id}/test`,
     { question }
   )
   if (response.code === 200 && response.data) {
-    return response.data.answer
+    return response.data
   }
   throw new Error(response.message || '测试智能体失败')
 }
 
 // 发布智能体
 export const publishAgent = async (id: number): Promise<Agent> => {
-  const response = await post<ApiResponse<Agent>>(`/api/v1/agents/${id}/publish`, {})
+  const response = await post<ApiResponse<Agent>>(`/v1/agents/${id}/publish`, {})
   if (response.code === 200 && response.data) {
     return response.data
   }
@@ -130,13 +154,48 @@ export const publishAgent = async (id: number): Promise<Agent> => {
 }
 
 // 与智能体对话
-export const chatWithAgent = async (id: number, question: string): Promise<ChatResponse> => {
+export const chatWithAgent = async (id: number, question: string, sessionId?: number): Promise<ChatResponse> => {
   const response = await post<ApiResponse<ChatResponse>>(
-    `/api/v1/agents/${id}/chat`,
-    { question }
+    `/v1/agents/${id}/chat`,
+    { question, sessionId }
   )
   if (response.code === 200 && response.data) {
     return response.data
   }
   throw new Error(response.message || '对话失败')
+}
+
+// 获取对话历史
+export const getAgentConversation = async (id: number, sessionId: number): Promise<ChatHistoryResponse> => {
+  const response = await get<ApiResponse<ChatHistoryResponse>>(`/v1/agents/${id}/conversation`, { sessionId })
+  if (response.code === 200 && response.data) {
+    return response.data
+  }
+  throw new Error(response.message || '获取对话历史失败')
+}
+
+// 获取会话列表
+export const getAgentSessions = async (id: number): Promise<ChatSessionsResponse> => {
+  const response = await get<ApiResponse<ChatSessionsResponse>>(`/v1/agents/${id}/sessions`)
+  if (response.code === 200 && response.data) {
+    return response.data
+  }
+  throw new Error(response.message || '获取会话列表失败')
+}
+
+// 创建会话
+export const createAgentSession = async (id: number): Promise<ChatSession> => {
+  const response = await post<ApiResponse<ChatSession>>(`/v1/agents/${id}/sessions`, {})
+  if (response.code === 200 && response.data) {
+    return response.data
+  }
+  throw new Error(response.message || '创建会话失败')
+}
+
+// 删除会话
+export const deleteAgentSession = async (agentId: number, sessionId: number): Promise<void> => {
+  const response = await del<ApiResponse<void>>(`/v1/agents/${agentId}/sessions/${sessionId}`)
+  if (response.code !== 200) {
+    throw new Error(response.message || '删除会话失败')
+  }
 }

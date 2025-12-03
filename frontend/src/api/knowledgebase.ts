@@ -39,7 +39,7 @@ interface ApiResponse<T> {
 
 // 获取知识库列表
 export const getKnowledgeBases = async (): Promise<KnowledgeBase[]> => {
-  const response = await get<ApiResponse<KnowledgeBase[]>>('/api/v1/knowledge-bases')
+  const response = await get<ApiResponse<KnowledgeBase[]>>('/v1/knowledge-bases')
   if (response.code === 200 && response.data) {
     return response.data
   }
@@ -48,7 +48,7 @@ export const getKnowledgeBases = async (): Promise<KnowledgeBase[]> => {
 
 // 获取知识库详情
 export const getKnowledgeBase = async (id: number): Promise<KnowledgeBase> => {
-  const response = await get<ApiResponse<KnowledgeBase>>(`/api/v1/knowledge-bases/${id}`)
+  const response = await get<ApiResponse<KnowledgeBase>>(`/v1/knowledge-bases/${id}`)
   if (response.code === 200 && response.data) {
     return response.data
   }
@@ -57,7 +57,7 @@ export const getKnowledgeBase = async (id: number): Promise<KnowledgeBase> => {
 
 // 创建知识库
 export const createKnowledgeBase = async (data: CreateKnowledgeBaseRequest): Promise<KnowledgeBase> => {
-  const response = await post<ApiResponse<KnowledgeBase>>('/api/v1/knowledge-bases', data)
+  const response = await post<ApiResponse<KnowledgeBase>>('/v1/knowledge-bases', data)
   if (response.code === 200 && response.data) {
     return response.data
   }
@@ -66,7 +66,7 @@ export const createKnowledgeBase = async (data: CreateKnowledgeBaseRequest): Pro
 
 // 更新知识库
 export const updateKnowledgeBase = async (id: number, data: CreateKnowledgeBaseRequest): Promise<KnowledgeBase> => {
-  const response = await put<ApiResponse<KnowledgeBase>>(`/api/v1/knowledge-bases/${id}`, data)
+  const response = await put<ApiResponse<KnowledgeBase>>(`/v1/knowledge-bases/${id}`, data)
   if (response.code === 200 && response.data) {
     return response.data
   }
@@ -75,7 +75,7 @@ export const updateKnowledgeBase = async (id: number, data: CreateKnowledgeBaseR
 
 // 删除知识库
 export const deleteKnowledgeBase = async (id: number): Promise<void> => {
-  const response = await del<ApiResponse<void>>(`/api/v1/knowledge-bases/${id}`)
+  const response = await del<ApiResponse<void>>(`/v1/knowledge-bases/${id}`)
   if (response.code !== 200) {
     throw new Error(response.message || '删除知识库失败')
   }
@@ -84,7 +84,7 @@ export const deleteKnowledgeBase = async (id: number): Promise<void> => {
 // 获取知识库的文档列表
 export const getDocuments = async (knowledgeBaseId: number): Promise<KnowledgeDocument[]> => {
   const response = await get<ApiResponse<KnowledgeDocument[]>>(
-    `/api/v1/knowledge-bases/${knowledgeBaseId}/documents`
+    `/v1/knowledge-bases/${knowledgeBaseId}/documents`
   )
   if (response.code === 200 && response.data) {
     return response.data
@@ -106,9 +106,8 @@ export const uploadDocument = async (
     headers['Authorization'] = `Bearer ${token}`
   }
 
-  const BASE_URL = import.meta.env.DEV ? '/api' : '/api'
   const response = await fetch(
-    `${BASE_URL}/v1/knowledge-bases/${knowledgeBaseId}/documents/upload`,
+    `/api/v1/knowledge-bases/${knowledgeBaseId}/documents/upload`,
     {
       method: 'POST',
       headers,
@@ -131,7 +130,7 @@ export const uploadDocument = async (
 // 删除文档
 export const deleteDocument = async (knowledgeBaseId: number, documentId: number): Promise<void> => {
   const response = await del<ApiResponse<void>>(
-    `/api/v1/knowledge-bases/${knowledgeBaseId}/documents/${documentId}`
+    `/v1/knowledge-bases/${knowledgeBaseId}/documents/${documentId}`
   )
   if (response.code !== 200) {
     throw new Error(response.message || '删除文档失败')

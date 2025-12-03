@@ -9,6 +9,7 @@ public class ChatRequest {
 
     @NotBlank(message = "问题不能为空")
     private String question;
+    private Long sessionId;
 
     public String getQuestion() {
         return question;
@@ -16,6 +17,14 @@ public class ChatRequest {
 
     public void setQuestion(String question) {
         this.question = question;
+    }
+
+    public Long getSessionId() {
+        return sessionId;
+    }
+
+    public void setSessionId(Long sessionId) {
+        this.sessionId = sessionId;
     }
 }
 

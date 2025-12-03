@@ -14,7 +14,7 @@ export interface UserListResponse {
 
 // 获取所有用户列表
 export const getAllUsers = async (): Promise<UserProfile[]> => {
-  const response = await get<UserListResponse>('/api/v1/admin/users')
+  const response = await get<UserListResponse>('/v1/admin/users')
   if (response.code === 200 && response.data) {
     return response.data
   }
@@ -23,5 +23,5 @@ export const getAllUsers = async (): Promise<UserProfile[]> => {
 
 // 删除用户
 export const deleteUser = async (username: string): Promise<void> => {
-  await del(`/api/v1/admin/users/${username}`)
+  await del(`/v1/admin/users/${username}`)
 }

@@ -39,6 +39,12 @@
                 <span class="message-label">{{ msg.type === 'user' ? '用户' : '智能体' }}</span>
                 <span class="message-time">{{ formatTime(msg.timestamp) }}</span>
               </div>
+              <div
+                v-if="msg.type === 'agent' && msg.plugins && msg.plugins.length"
+                class="plugin-bubble"
+              >
+                已调用插件：{{ msg.plugins.join('、') }}
+              </div>
               <div class="message-content">{{ msg.content }}</div>
             </div>
           </div>
@@ -54,7 +60,7 @@
             @keydown.meta.enter="handleTest"
           ></textarea>
           <div class="input-actions">
-            <span class="hint">按 Ctrl+Enter 或 Cmd+Enter 发送</span>
+            <span class="hint">按 Ctrl+Enter 发送</span>
             <button @click="handleTest" :disabled="testing || !question.trim()" class="send-btn">
               {{ testing ? '测试中...' : '发送' }}
             </button>
@@ -79,6 +85,7 @@ interface Message {
   type: 'user' | 'agent'
   content: string
   timestamp: Date
+  plugins?: string[]
 }
 
 const agent = ref<Agent | null>(null)
@@ -120,12 +127,13 @@ const handleTest = async () => {
   error.value = null
 
   try {
-    const answer = await testAgent(agentId.value, userQuestion)
+    const response = await testAgent(agentId.value, userQuestion)
     
     // 添加智能体回答
     messages.value.push({
       type: 'agent',
-      content: answer,
+      content: response.answer,
+      plugins: response.pluginsUsed && response.pluginsUsed.length ? response.pluginsUsed : undefined,
       timestamp: new Date(),
     })
   } catch (e: any) {
@@ -303,6 +311,17 @@ h1 {
   background: #f5f5f5;
   color: #333;
   margin-right: 20%;
+}
+
+.plugin-bubble {
+  display: inline-block;
+  background: #e8f5e9;
+  border: 1px solid #c8e6c9;
+  color: #2c3e50;
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  margin-bottom: 6px;
 }
 
 .input-section {

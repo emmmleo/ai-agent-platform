@@ -1,5 +1,5 @@
 <template>
-  <div class="agent-chat">
+  <div class="agent-chat" @click="closeSessionMenu">
     <div class="header">
       <router-link to="/agents" class="back-link">← 返回列表</router-link>
       <h1 v-if="agent">{{ agent.name }}</h1>
@@ -14,6 +14,32 @@
         <p><strong>名称：</strong>{{ agent.name }}</p>
         <p v-if="agent.description"><strong>描述：</strong>{{ agent.description }}</p>
         <p v-if="agent.systemPrompt"><strong>系统提示词：</strong>{{ truncateText(agent.systemPrompt, 100) }}</p>
+
+        <div class="sessions-panel">
+          <div class="sessions-header">
+            <h4>会话列表</h4>
+            <button class="new-session-btn" @click.stop="handleCreateSession" :disabled="sending">+ 新建</button>
+          </div>
+          <div v-if="sessions.length === 0" class="empty-sessions">暂无会话</div>
+          <ul v-else class="session-list">
+            <li
+              v-for="session in sessions"
+              :key="session.id"
+              :class="['session-item', { active: session.id === selectedSessionId }]"
+              @click.stop="handleSelectSession(session.id)"
+            >
+              <span class="session-title">{{ session.title }}</span>
+              <button class="session-menu-btn" @click.stop="toggleSessionMenu(session.id)">...</button>
+              <div
+                v-if="sessionMenuOpen === session.id"
+                class="session-menu-popover"
+                @click.stop
+              >
+                <button class="session-menu-item" @click="handleDeleteSession(session.id)">删除会话</button>
+              </div>
+            </li>
+          </ul>
+        </div>
       </div>
 
       <div class="chat-section">
@@ -30,6 +56,12 @@
               <div class="message-header">
                 <span class="message-role">{{ msg.type === 'user' ? '你' : '智能体' }}</span>
                 <span v-if="msg.source" class="message-source">{{ getSourceText(msg.source) }}</span>
+              </div>
+              <div
+                v-if="msg.type === 'assistant' && msg.plugins && msg.plugins.length"
+                class="plugin-bubble"
+              >
+                已调用插件：{{ msg.plugins.join('、') }}
               </div>
               <div class="message-content">{{ msg.content }}</div>
             </div>
@@ -58,14 +90,26 @@
 <script setup lang="ts">
 import { ref, onMounted, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { getAgent, chatWithAgent, type Agent } from '../api/agent'
+import {
+  getAgent,
+  getAgentConversation,
+  getAgentSessions,
+  createAgentSession,
+  deleteAgentSession,
+  chatWithAgent,
+  type Agent,
+  type ChatSession
+} from '../api/agent'
 
 const router = useRouter()
 const route = useRoute()
 
 const agentId = Number(route.params.id)
 const agent = ref<Agent | null>(null)
-const messages = ref<Array<{ type: string; content: string; source?: string }>>([])
+const messages = ref<Array<{ type: string; content: string; source?: string; plugins?: string[] }>>([])
+const sessions = ref<ChatSession[]>([])
+const selectedSessionId = ref<number | null>(null)
+const sessionMenuOpen = ref<number | null>(null)
 const inputQuestion = ref('')
 const loading = ref(false)
 const sending = ref(false)
@@ -73,8 +117,6 @@ const error = ref<string | null>(null)
 
 // 加载智能体详情
 const loadAgent = async () => {
-  loading.value = true
-  error.value = null
   try {
     const a = await getAgent(agentId)
     agent.value = a
@@ -86,6 +128,122 @@ const loadAgent = async () => {
   } catch (e: any) {
     error.value = e.message || '加载智能体详情失败'
     console.error('加载智能体详情失败:', e)
+  }
+}
+
+const loadConversationHistory = async (sessionId?: number | null) => {
+  const targetId = sessionId ?? selectedSessionId.value
+  if (!targetId) {
+    messages.value = []
+    return
+  }
+  try {
+    const history = await getAgentConversation(agentId, targetId)
+    const restored = (history.messages || [])
+      .filter((msg) => msg.type === 'user' || msg.type === 'assistant')
+      .map((msg) => ({
+        type: msg.type,
+        content: msg.content,
+        plugins: msg.plugins && msg.plugins.length ? [...msg.plugins] : undefined,
+      }))
+    messages.value = restored
+    selectedSessionId.value = history.sessionId ?? targetId
+    await nextTick()
+    scrollToBottom()
+  } catch (e: any) {
+    console.error('加载对话历史失败:', e)
+  }
+}
+
+const loadSessions = async (preferredSessionId?: number | null) => {
+  try {
+    const result = await getAgentSessions(agentId)
+    sessions.value = result.sessions || []
+    if (sessions.value.length === 0) {
+      selectedSessionId.value = null
+      messages.value = []
+      return
+    }
+    let targetId = preferredSessionId ?? selectedSessionId.value ?? sessions.value[0].id
+    if (!sessions.value.some((session) => session.id === targetId)) {
+      targetId = sessions.value[0].id
+    }
+    selectedSessionId.value = targetId
+    await loadConversationHistory(targetId)
+  } catch (e: any) {
+    console.error('加载会话列表失败:', e)
+  }
+}
+
+const handleSelectSession = async (sessionId: number) => {
+  if (selectedSessionId.value === sessionId) {
+    sessionMenuOpen.value = null
+    return
+  }
+  selectedSessionId.value = sessionId
+  sessionMenuOpen.value = null
+  await loadConversationHistory(sessionId)
+}
+
+const handleCreateSession = async () => {
+  try {
+    const session = await createAgentSession(agentId)
+    await loadSessions(session.id)
+    sessionMenuOpen.value = null
+  } catch (e: any) {
+    error.value = e.message || '创建会话失败'
+    console.error('创建会话失败:', e)
+  }
+}
+
+const handleDeleteSession = async (sessionId: number) => {
+  if (!window.confirm('确认删除该会话吗？')) {
+    return
+  }
+  try {
+    await deleteAgentSession(agentId, sessionId)
+    sessionMenuOpen.value = null
+    if (selectedSessionId.value === sessionId) {
+      selectedSessionId.value = null
+    }
+    await loadSessions(selectedSessionId.value)
+  } catch (e: any) {
+    error.value = e.message || '删除会话失败'
+    console.error('删除会话失败:', e)
+  }
+}
+
+const ensureSessionSelected = async (): Promise<number> => {
+  if (selectedSessionId.value) {
+    return selectedSessionId.value
+  }
+  try {
+    const session = await createAgentSession(agentId)
+    await loadSessions(session.id)
+    return session.id
+  } catch (e: any) {
+    error.value = e.message || '创建会话失败'
+    console.error('创建会话失败:', e)
+    throw e
+  }
+}
+
+const toggleSessionMenu = (sessionId: number) => {
+  sessionMenuOpen.value = sessionMenuOpen.value === sessionId ? null : sessionId
+}
+
+const closeSessionMenu = () => {
+  sessionMenuOpen.value = null
+}
+
+const initializeChat = async () => {
+  loading.value = true
+  error.value = null
+  try {
+    await loadAgent()
+    if (!error.value) {
+      await loadSessions()
+    }
   } finally {
     loading.value = false
   }
@@ -95,6 +253,11 @@ const loadAgent = async () => {
 const handleSend = async () => {
   if (!inputQuestion.value.trim() || sending.value) {
     return
+  }
+
+  let sessionId = selectedSessionId.value
+  if (!sessionId) {
+    sessionId = await ensureSessionSelected()
   }
 
   const question = inputQuestion.value.trim()
@@ -110,18 +273,22 @@ const handleSend = async () => {
   error.value = null
 
   try {
-    const response = await chatWithAgent(agentId, question)
+    const response = await chatWithAgent(agentId, question, sessionId)
     
     // 添加智能体回复
     messages.value.push({
       type: 'assistant',
       content: response.answer,
       source: response.source,
+      plugins: response.pluginsUsed && response.pluginsUsed.length ? response.pluginsUsed : undefined,
     })
 
-    // 滚动到底部
-    await nextTick()
-    scrollToBottom()
+    if (response.sessionId) {
+      selectedSessionId.value = response.sessionId
+      sessionId = response.sessionId
+    }
+
+    await loadSessions(sessionId)
   } catch (e: any) {
     error.value = e.message || '对话失败'
     console.error('对话失败:', e)
@@ -161,7 +328,7 @@ const getSourceText = (source: string) => {
 }
 
 onMounted(() => {
-  loadAgent()
+  initializeChat()
 })
 </script>
 
@@ -239,6 +406,116 @@ h1 {
   margin-bottom: 10px;
   line-height: 1.6;
   font-size: 14px;
+}
+
+.sessions-panel {
+  margin-top: 20px;
+  border-top: 1px solid #f0f0f0;
+  padding-top: 15px;
+}
+
+.sessions-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.sessions-header h4 {
+  font-size: 14px;
+  color: #2c3e50;
+  margin: 0;
+}
+
+.new-session-btn {
+  border: none;
+  background: #f0f7f4;
+  color: #42b983;
+  padding: 4px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.new-session-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.session-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.session-item {
+  position: relative;
+  padding: 8px 10px;
+  border: 1px solid #eee;
+  border-radius: 6px;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s;
+}
+
+.session-item.active {
+  border-color: #42b983;
+  background: #f4fffa;
+}
+
+.session-title {
+  flex: 1;
+  color: #2c3e50;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding-right: 10px;
+}
+
+.session-menu-btn {
+  border: none;
+  background: transparent;
+  color: #666;
+  font-size: 16px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.session-item:hover .session-menu-btn {
+  opacity: 1;
+}
+
+.session-menu-popover {
+  position: absolute;
+  top: 34px;
+  right: 10px;
+  background: #fff;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  z-index: 5;
+}
+
+.session-menu-item {
+  border: none;
+  background: transparent;
+  color: #f44336;
+  padding: 6px 12px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.empty-sessions {
+  font-size: 12px;
+  color: #999;
+  padding: 8px 0;
 }
 
 .chat-section {
@@ -334,6 +611,17 @@ h1 {
   color: #2c3e50;
   border: 1px solid #e0e0e0;
   border-bottom-left-radius: 2px;
+}
+
+.plugin-bubble {
+  display: inline-block;
+  background: #e8f5e9;
+  border: 1px solid #c8e6c9;
+  color: #2c3e50;
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  margin-bottom: 6px;
 }
 
 .input-section {

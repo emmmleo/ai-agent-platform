@@ -22,7 +22,7 @@ import java.util.Map;
  * 工作流控制器
  */
 @RestController
-@RequestMapping("/api/v1/workflows")
+@RequestMapping("/v1/workflows")
 public class WorkflowController {
 
     private static final Logger log = LoggerFactory.getLogger(WorkflowController.class);

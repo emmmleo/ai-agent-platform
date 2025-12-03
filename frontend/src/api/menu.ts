@@ -10,6 +10,6 @@ export interface Menu {
 
 // 获取菜单列表
 export const getMenus = async (): Promise<Menu[]> => {
-  return get<Menu[]>('/api/v1/menus')
+  return get<Menu[]>('/v1/menus')
 }
 

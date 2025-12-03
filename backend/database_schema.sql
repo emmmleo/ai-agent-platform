@@ -155,6 +155,22 @@ CREATE TABLE IF NOT EXISTS `plugin` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='插件表';
 
 -- ============================================
+-- 9. 智能体会话上下文表 (agent_conversation_context)
+-- ============================================
+CREATE TABLE IF NOT EXISTS `agent_conversation_context` (
+    `id` BIGINT NOT NULL AUTO_INCREMENT COMMENT '记录ID',
+    `agent_id` BIGINT NOT NULL COMMENT '智能体ID',
+    `user_id` BIGINT NOT NULL COMMENT '用户ID',
+    `title` VARCHAR(255) NOT NULL COMMENT '会话标题',
+    `messages` LONGTEXT NOT NULL COMMENT '上下文消息（JSON）',
+    `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    PRIMARY KEY (`id`),
+    KEY `idx_agent_user` (`agent_id`, `user_id`),
+    KEY `idx_updated_at` (`updated_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='智能体会话上下文表';
+
+-- ============================================
 -- 外键约束（可选，根据实际需求决定是否添加）
 -- ============================================
 -- 注意：如果添加外键约束，需要确保数据完整性

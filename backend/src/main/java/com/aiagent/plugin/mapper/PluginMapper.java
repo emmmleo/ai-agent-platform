@@ -20,6 +20,11 @@ public interface PluginMapper {
     List<Plugin> findEnabledPlugins();
 
     /**
+     * 根据ID列表查询插件
+     */
+    List<Plugin> findByIds(@Param("ids") List<Long> ids);
+
+    /**
      * 根据ID查询插件
      */
     Plugin findById(@Param("id") Long id);

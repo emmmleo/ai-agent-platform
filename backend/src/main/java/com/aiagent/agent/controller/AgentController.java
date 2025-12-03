@@ -1,8 +1,11 @@
 package com.aiagent.agent.controller;
 
 import com.aiagent.agent.dto.AgentResponse;
+import com.aiagent.agent.dto.ChatHistoryResponse;
 import com.aiagent.agent.dto.ChatRequest;
 import com.aiagent.agent.dto.ChatResponse;
+import com.aiagent.agent.dto.ChatSessionResponse;
+import com.aiagent.agent.dto.ChatSessionsResponse;
 import com.aiagent.agent.dto.CreateAgentRequest;
 import com.aiagent.agent.dto.TestAgentRequest;
 import com.aiagent.agent.dto.TestAgentResponse;
@@ -27,7 +30,7 @@ import org.slf4j.LoggerFactory;
  * 智能体控制器
  */
 @RestController
-@RequestMapping("/api/v1/agents")
+@RequestMapping("/v1/agents")
 public class AgentController {
 
     private static final Logger log = LoggerFactory.getLogger(AgentController.class);
@@ -187,6 +190,79 @@ public class AgentController {
         response.put("message", "success");
         response.put("data", chatResponse);
         
+        return ResponseEntity.ok(response);
+    }
+
+    /**
+     * 获取对话历史
+     */
+    @GetMapping("/{id}/conversation")
+    public ResponseEntity<Map<String, Object>> conversation(
+            @PathVariable Long id,
+            @RequestParam Long sessionId,
+            Authentication authentication) {
+        Long userId = getCurrentUserId(authentication);
+        ChatHistoryResponse history = agentService.getConversation(id, userId, sessionId);
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("code", 200);
+        response.put("message", "success");
+        response.put("data", history);
+
+        return ResponseEntity.ok(response);
+    }
+
+    /**
+     * 获取会话列表
+     */
+    @GetMapping("/{id}/sessions")
+    public ResponseEntity<Map<String, Object>> sessions(
+            @PathVariable Long id,
+            Authentication authentication) {
+        Long userId = getCurrentUserId(authentication);
+        ChatSessionsResponse sessions = agentService.listConversations(id, userId);
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("code", 200);
+        response.put("message", "success");
+        response.put("data", sessions);
+
+        return ResponseEntity.ok(response);
+    }
+
+    /**
+     * 创建新会话
+     */
+    @PostMapping("/{id}/sessions")
+    public ResponseEntity<Map<String, Object>> createSession(
+            @PathVariable Long id,
+            Authentication authentication) {
+        Long userId = getCurrentUserId(authentication);
+        ChatSessionResponse session = agentService.createConversation(id, userId);
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("code", 200);
+        response.put("message", "success");
+        response.put("data", session);
+
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    }
+
+    /**
+     * 删除会话
+     */
+    @DeleteMapping("/{id}/sessions/{sessionId}")
+    public ResponseEntity<Map<String, Object>> deleteSession(
+            @PathVariable Long id,
+            @PathVariable Long sessionId,
+            Authentication authentication) {
+        Long userId = getCurrentUserId(authentication);
+        agentService.deleteConversation(id, userId, sessionId);
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("code", 200);
+        response.put("message", "success");
+
         return ResponseEntity.ok(response);
     }
 

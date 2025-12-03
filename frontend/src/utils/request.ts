@@ -1,6 +1,6 @@
 // HTTP 请求工具函数
 
-const BASE_URL = import.meta.env.DEV ? '/api' : '/api'
+const BASE_URL = "/api"
 const TOKEN_KEY = 'auth_token'
 
 // 获取 token

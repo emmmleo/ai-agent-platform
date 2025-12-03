@@ -21,7 +21,7 @@ import java.util.Map;
  * 插件控制器
  */
 @RestController
-@RequestMapping("/api/v1/plugins")
+@RequestMapping("/v1/plugins")
 public class PluginController {
 
     private static final Logger log = LoggerFactory.getLogger(PluginController.class);

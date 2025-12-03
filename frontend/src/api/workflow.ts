@@ -67,7 +67,7 @@ interface ApiResponse<T> {
 
 // 获取工作流列表
 export const getWorkflows = async (): Promise<Workflow[]> => {
-  const response = await get<ApiResponse<Workflow[]>>('/api/v1/workflows')
+  const response = await get<ApiResponse<Workflow[]>>('/v1/workflows')
   if (response.code === 200 && response.data) {
     return response.data
   }
@@ -76,7 +76,7 @@ export const getWorkflows = async (): Promise<Workflow[]> => {
 
 // 获取工作流详情
 export const getWorkflow = async (id: number): Promise<Workflow> => {
-  const response = await get<ApiResponse<Workflow>>(`/api/v1/workflows/${id}`)
+  const response = await get<ApiResponse<Workflow>>(`/v1/workflows/${id}`)
   if (response.code === 200 && response.data) {
     return response.data
   }
@@ -85,7 +85,7 @@ export const getWorkflow = async (id: number): Promise<Workflow> => {
 
 // 创建工作流
 export const createWorkflow = async (data: CreateWorkflowRequest): Promise<Workflow> => {
-  const response = await post<ApiResponse<Workflow>>('/api/v1/workflows', data)
+  const response = await post<ApiResponse<Workflow>>('/v1/workflows', data)
   if (response.code === 200 && response.data) {
     return response.data
   }
@@ -94,7 +94,7 @@ export const createWorkflow = async (data: CreateWorkflowRequest): Promise<Workf
 
 // 更新工作流
 export const updateWorkflow = async (id: number, data: CreateWorkflowRequest): Promise<Workflow> => {
-  const response = await put<ApiResponse<Workflow>>(`/api/v1/workflows/${id}`, data)
+  const response = await put<ApiResponse<Workflow>>(`/v1/workflows/${id}`, data)
   if (response.code === 200 && response.data) {
     return response.data
   }
@@ -103,7 +103,7 @@ export const updateWorkflow = async (id: number, data: CreateWorkflowRequest): P
 
 // 删除工作流
 export const deleteWorkflow = async (id: number): Promise<void> => {
-  const response = await del<ApiResponse<void>>(`/api/v1/workflows/${id}`)
+  const response = await del<ApiResponse<void>>(`/v1/workflows/${id}`)
   if (response.code !== 200) {
     throw new Error(response.message || '删除工作流失败')
   }
@@ -115,7 +115,7 @@ export const executeWorkflow = async (
   data: ExecuteWorkflowRequest
 ): Promise<WorkflowExecution> => {
   const response = await post<ApiResponse<WorkflowExecution>>(
-    `/api/v1/workflows/${workflowId}/executions`,
+    `/v1/workflows/${workflowId}/executions`,
     data
   )
   if (response.code === 200 && response.data) {
@@ -127,7 +127,7 @@ export const executeWorkflow = async (
 // 获取工作流的执行记录
 export const getWorkflowExecutions = async (workflowId: number): Promise<WorkflowExecution[]> => {
   const response = await get<ApiResponse<WorkflowExecution[]>>(
-    `/api/v1/workflows/${workflowId}/executions`
+    `/v1/workflows/${workflowId}/executions`
   )
   if (response.code === 200 && response.data) {
     return response.data
@@ -141,7 +141,7 @@ export const getWorkflowExecution = async (
   executionId: number
 ): Promise<WorkflowExecution> => {
   const response = await get<ApiResponse<WorkflowExecution>>(
-    `/api/v1/workflows/${workflowId}/executions/${executionId}`
+    `/v1/workflows/${workflowId}/executions/${executionId}`
   )
   if (response.code === 200 && response.data) {
     return response.data
