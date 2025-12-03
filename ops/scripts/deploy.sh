@@ -11,6 +11,14 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
+# 部署参数
+CLEAN_MODE=0
+NO_BUILD=0
+BUILD_BACKEND=0
+BUILD_FRONTEND=0
+BUILD_SELECTION=0
+SHOULD_BUILD=0
+
 # 打印带颜色的消息
 print_info() {
     echo -e "${GREEN}[INFO]${NC} $1"
@@ -22,6 +30,68 @@ print_warn() {
 
 print_error() {
     echo -e "${RED}[ERROR]${NC} $1"
+}
+
+print_usage() {
+    cat <<EOF
+用法: $0 [选项]
+
+选项:
+  --clean           清理旧容器和数据卷后重新部署
+  --no-build        跳过镜像构建（使用已有镜像）
+  --build-backend   仅构建后端镜像
+  --build-frontend  仅构建前端镜像
+  --build-all       构建前后端镜像（可与其它选项组合）
+  --help, -h        显示帮助信息
+EOF
+}
+
+parse_args() {
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --clean)
+                CLEAN_MODE=1
+                ;;
+            --no-build)
+                NO_BUILD=1
+                BUILD_SELECTION=1
+                BUILD_BACKEND=0
+                BUILD_FRONTEND=0
+                ;;
+            --build-backend)
+                BUILD_BACKEND=1
+                BUILD_SELECTION=1
+                ;;
+            --build-frontend)
+                BUILD_FRONTEND=1
+                BUILD_SELECTION=1
+                ;;
+            --build-all)
+                BUILD_BACKEND=1
+                BUILD_FRONTEND=1
+                BUILD_SELECTION=1
+                ;;
+            --help|-h)
+                print_usage
+                exit 0
+                ;;
+            *)
+                print_warn "未知参数: $1"
+                print_usage
+                exit 1
+                ;;
+        esac
+        shift
+    done
+
+    if [[ $BUILD_SELECTION -eq 0 ]]; then
+        BUILD_BACKEND=1
+        BUILD_FRONTEND=1
+    fi
+
+    if [[ $BUILD_BACKEND -eq 1 || $BUILD_FRONTEND -eq 1 ]]; then
+        SHOULD_BUILD=1
+    fi
 }
 
 # 检查Docker是否安装
@@ -69,45 +139,84 @@ cleanup_old_containers() {
 
 # 构建镜像
 build_images() {
+    local targets=()
+    if [[ $BUILD_BACKEND -eq 1 ]]; then
+        targets+=("后端")
+    fi
+    if [[ $BUILD_FRONTEND -eq 1 ]]; then
+        targets+=("前端")
+    fi
+
+    local target_str="未选择需要构建的服务"
+    if [[ ${#targets[@]} -gt 0 ]]; then
+        local IFS=', '
+        target_str="${targets[*]}"
+    fi
+
+    print_info "本次构建组件: ${target_str}"
     print_info "开始构建镜像..."
     print_info "注意: 首次构建可能需要几分钟，请耐心等待..."
-    print_info "提示: 如果镜像拉取失败，请配置Docker镜像加速器"
+    print_info "提示: 如果镜像拉取失败，请配置 Docker 镜像加速器"
     echo ""
     
-    # 预先拉取所有所需的基础镜像，避免构建时拉取失败
+    # 预先拉取所需的基础镜像，避免构建时拉取失败
     print_info "预先拉取基础镜像（如果不存在）..."
     print_info "这可以避免构建过程中的网络问题..."
     echo ""
-    
-    print_info "拉取后端构建镜像: maven:3.9-eclipse-temurin-21..."
-    docker pull maven:3.9-eclipse-temurin-21 2>/dev/null || print_warn "拉取 maven:3.9-eclipse-temurin-21 失败，将在构建时重试"
-    
-    print_info "拉取后端运行镜像: eclipse-temurin:21-jre-alpine..."
-    docker pull eclipse-temurin:21-jre-alpine 2>/dev/null || print_warn "拉取 eclipse-temurin:21-jre-alpine 失败，将在构建时重试"
-    
-    print_info "拉取前端构建镜像: node:20-alpine..."
-    docker pull node:20-alpine 2>/dev/null || print_warn "拉取 node:20-alpine 失败，将在构建时重试"
-    
-    print_info "拉取前端运行镜像: nginx:alpine..."
-    docker pull nginx:alpine 2>/dev/null || print_warn "拉取 nginx:alpine 失败，将在构建时重试"
-    
+
+    if [[ $BUILD_BACKEND -eq 1 ]]; then
+        print_info "拉取后端构建镜像: maven:3.9-eclipse-temurin-21..."
+        docker pull maven:3.9-eclipse-temurin-21 2>/dev/null || print_warn "拉取 maven:3.9-eclipse-temurin-21 失败，将在构建时重试"
+
+        print_info "拉取后端运行镜像: eclipse-temurin:21-jre-alpine..."
+        docker pull eclipse-temurin:21-jre-alpine 2>/dev/null || print_warn "拉取 eclipse-temurin:21-jre-alpine 失败，将在构建时重试"
+    fi
+
+    if [[ $BUILD_FRONTEND -eq 1 ]]; then
+        print_info "拉取前端构建镜像: node:20-alpine..."
+        docker pull node:20-alpine 2>/dev/null || print_warn "拉取 node:20-alpine 失败，将在构建时重试"
+
+        print_info "拉取前端运行镜像: nginx:alpine..."
+        docker pull nginx:alpine 2>/dev/null || print_warn "拉取 nginx:alpine 失败，将在构建时重试"
+    fi
+
     print_info "拉取数据库镜像: mysql:8.0..."
     docker pull mysql:8.0 2>/dev/null || print_warn "拉取 mysql:8.0 失败，将在启动时重试"
-    
+
     print_info "拉取 phpMyAdmin 镜像: phpmyadmin/phpmyadmin..."
     docker pull phpmyadmin/phpmyadmin 2>/dev/null || print_warn "拉取 phpmyadmin/phpmyadmin 失败，将在启动时重试"
-    
+
     print_info "基础镜像拉取完成（已存在的镜像会跳过）"
     echo ""
-    
-    # 构建后端镜像
-    print_info "构建后端镜像..."
-    docker-compose build backend
-    
-    # 构建前端镜像
-    print_info "构建前端镜像..."
-    docker-compose build frontend
-    
+
+    if [[ $BUILD_BACKEND -eq 1 ]]; then
+        print_info "构建后端镜像..."
+        if ! docker-compose build backend; then
+            print_error "后端镜像构建失败"
+            echo ""
+            print_info "可能的原因和解决方案:"
+            echo "  1. 网络问题 - 无法访问 Docker Hub"
+            echo "     解决方案: 配置 Docker 镜像加速器"
+            echo ""
+            echo "  2. Docker 资源不足 - 请增加 Docker Desktop 的 CPU/内存限制"
+            echo ""
+            echo "  3. 查看详细错误: docker-compose build --progress=plain backend"
+            echo ""
+            exit 1
+        fi
+    fi
+
+    if [[ $BUILD_FRONTEND -eq 1 ]]; then
+        print_info "构建前端镜像..."
+        if ! docker-compose build frontend; then
+            print_error "前端镜像构建失败"
+            echo ""
+            echo "  1. 请检查网络连接是否正常"
+            echo "  2. 查看详细错误: docker-compose build frontend"
+            exit 1
+        fi
+    fi
+
     print_info "镜像构建完成"
 }
 
@@ -187,12 +296,16 @@ main() {
     check_ports
     
     # 清理旧容器（可选）
-    if [ "$1" == "--clean" ]; then
+    if [[ $CLEAN_MODE -eq 1 ]]; then
         cleanup_old_containers
     fi
     
     # 构建镜像
-    if [ "$1" != "--no-build" ]; then
+    if [[ $NO_BUILD -eq 1 ]]; then
+        print_info "根据 --no-build 参数，跳过所有镜像构建"
+    elif [[ $SHOULD_BUILD -eq 0 ]]; then
+        print_info "未选择需要构建的服务，跳过镜像构建"
+    else
         build_images
     fi
     
@@ -203,19 +316,6 @@ main() {
     show_status
 }
 
-# 处理命令行参数
-case "${1:-}" in
-    --help|-h)
-        echo "用法: $0 [选项]"
-        echo ""
-        echo "选项:"
-        echo "  --clean      清理旧容器和数据卷后重新部署"
-        echo "  --no-build   跳过镜像构建（使用已有镜像）"
-        echo "  --help, -h   显示帮助信息"
-        exit 0
-        ;;
-    *)
-        main "$@"
-        ;;
-esac
+parse_args "$@"
+main
 
