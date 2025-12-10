@@ -5,6 +5,7 @@ import com.aiagent.knowledgebase.dto.KnowledgeBaseResponse;
 import com.aiagent.knowledgebase.entity.KnowledgeBase;
 import com.aiagent.knowledgebase.mapper.KnowledgeBaseMapper;
 import com.aiagent.knowledgebase.service.KnowledgeBaseService;
+import com.aiagent.knowledgebase.util.VectorStoreService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -16,9 +17,12 @@ import java.util.stream.Collectors;
 public class KnowledgeBaseServiceImpl implements KnowledgeBaseService {
 
     private final KnowledgeBaseMapper knowledgeBaseMapper;
+    private final VectorStoreService vectorStoreService;
 
-    public KnowledgeBaseServiceImpl(KnowledgeBaseMapper knowledgeBaseMapper) {
+    public KnowledgeBaseServiceImpl(KnowledgeBaseMapper knowledgeBaseMapper,
+                                    VectorStoreService vectorStoreService) {
         this.knowledgeBaseMapper = knowledgeBaseMapper;
+        this.vectorStoreService = vectorStoreService;
     }
 
     @Override
@@ -78,6 +82,8 @@ public class KnowledgeBaseServiceImpl implements KnowledgeBaseService {
         if (knowledgeBase == null) {
             throw new IllegalArgumentException("知识库不存在或无权限访问");
         }
+        // 删除向量数据，防止残留占用存储
+        vectorStoreService.deleteByKnowledgeBaseId(id);
         knowledgeBaseMapper.deleteById(id);
     }
 

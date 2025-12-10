@@ -46,3 +46,20 @@ llm:
   api-key: sk-0b624e3926fe4e80b56de6de97d833e1
   connect-timeout: 10s
   read-timeout: 60s
+
+# Gemini Embedding 配置
+gemini:
+  enabled: true
+  api-key: AIzaSyBchmdLJjZWlLGeT6h4lw7jfD9LpPIIkXQ
+  embedding-model: gemini-embedding-001
+
+# PGVector 向量存储配置
+vectorstore:
+  enabled: true
+  url: jdbc:postgresql://localhost:5432/vector_db
+  username: vector_user
+  password: vector_pass
+  table: kb_chunks
+  dimension: 768
+  top-k: 5
+  min-score: 0.0

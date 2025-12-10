@@ -47,10 +47,24 @@ export interface TestAgentRequest {
 export interface TestAgentResponse {
   answer: string
   pluginsUsed?: string[]
+  ragContext?: RagContext
 }
 
 export interface ChatRequest {
   question: string
+}
+
+export interface RagReference {
+  knowledgeBaseId: number
+  documentId: number
+  content: string
+  score: number
+}
+
+export interface RagContext {
+  success: boolean
+  message: string
+  references: RagReference[]
 }
 
 export interface ChatResponse {
@@ -58,12 +72,14 @@ export interface ChatResponse {
   source: string // direct/rag/workflow
   pluginsUsed?: string[]
   sessionId?: number
+  ragContext?: RagContext
 }
 
 export interface ChatHistoryMessage {
   type: string
   content: string
   plugins?: string[]
+  ragContext?: RagContext
 }
 
 export interface ChatHistoryResponse {

@@ -21,6 +21,7 @@ import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.client.RestTemplate;
 
+import com.aiagent.agent.dto.ChatResponse.RagContext;
 import com.aiagent.config.LlmProperties;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
@@ -339,6 +340,8 @@ public class DeepSeekClient {
         private String name;
         @JsonProperty("plugins")
         private List<String> plugins;
+        @JsonProperty("ragContext")
+        private RagContext ragContext;
 
         public Message() {
         }
@@ -400,6 +403,14 @@ public class DeepSeekClient {
 
         public void setPlugins(List<String> plugins) {
             this.plugins = plugins;
+        }
+
+        public RagContext getRagContext() {
+            return ragContext;
+        }
+
+        public void setRagContext(RagContext ragContext) {
+            this.ragContext = ragContext;
         }
     }
 

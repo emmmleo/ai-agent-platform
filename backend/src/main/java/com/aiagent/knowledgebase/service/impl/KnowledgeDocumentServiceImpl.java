@@ -6,6 +6,8 @@ import com.aiagent.knowledgebase.entity.KnowledgeDocument;
 import com.aiagent.knowledgebase.mapper.KnowledgeBaseMapper;
 import com.aiagent.knowledgebase.mapper.KnowledgeDocumentMapper;
 import com.aiagent.knowledgebase.service.KnowledgeDocumentService;
+import com.aiagent.knowledgebase.util.TextSplitter;
+import com.aiagent.knowledgebase.util.VectorStoreService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Async;
@@ -27,11 +29,17 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
 
     private final KnowledgeDocumentMapper documentMapper;
     private final KnowledgeBaseMapper knowledgeBaseMapper;
+    private final TextSplitter textSplitter;
+    private final VectorStoreService vectorStoreService;
 
     public KnowledgeDocumentServiceImpl(KnowledgeDocumentMapper documentMapper,
-                                       KnowledgeBaseMapper knowledgeBaseMapper) {
+                                        KnowledgeBaseMapper knowledgeBaseMapper,
+                                        TextSplitter textSplitter,
+                                        VectorStoreService vectorStoreService) {
         this.documentMapper = documentMapper;
         this.knowledgeBaseMapper = knowledgeBaseMapper;
+        this.textSplitter = textSplitter;
+        this.vectorStoreService = vectorStoreService;
     }
 
     @Override
@@ -111,6 +119,9 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
         if (document == null) {
             throw new IllegalArgumentException("文档不存在或无权限访问");
         }
+        // 删除向量数据
+        vectorStoreService.deleteByDocumentId(id);
+        // 删除文档记录
         documentMapper.deleteById(id);
     }
 
@@ -160,7 +171,7 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
     public void processDocumentAsync(Long documentId) {
         try {
             log.info("开始处理文档: {}", documentId);
-            
+
             // 获取文档
             KnowledgeDocument document = documentMapper.findById(documentId);
             if (document == null) {
@@ -168,25 +179,36 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
                 return;
             }
 
-            // TODO: 实现文档分块逻辑
-            // 1. 将文档内容按照一定规则分块（例如：按段落、按字符数等）
-            // 2. 计算分块数量
-            int chunkCount = calculateChunks(document.getContent());
-            
-            // TODO: 实现向量化逻辑
-            // 1. 调用向量化服务（如OpenAI Embeddings API）
-            // 2. 将向量存储到向量数据库
-            boolean vectorized = false; // 暂时设为false，等待实际实现
-            
-            // 更新文档状态
+            // 1. 使用 TextSplitter 进行文本分块
+            List<String> chunks = textSplitter.split(document.getContent());
+            int chunkCount = chunks.size();
+            log.info("文档分块完成: docId={}, chunks={}", documentId, chunkCount);
+
+            // 2. 向量化并存储到 PostgreSQL
+            boolean vectorized = false;
+            log.info("向量化服务是否启用: {}", vectorStoreService.isEnabled());
+            if (!chunks.isEmpty() && vectorStoreService.isEnabled()) {
+                // 先删除旧的向量（如果有）
+                vectorStoreService.deleteByDocumentId(document.getId());
+                // 写入新向量
+                int saved = vectorStoreService.saveChunks(
+                        document.getKnowledgeBaseId(),
+                        document.getId(),
+                        chunks
+                );
+                vectorized = saved > 0;
+                log.info("向量化完成: docId={}, saved={}", documentId, saved);
+            }
+
+            // 3. 更新文档状态
             document.setStatus("processed");
             document.setChunkCount(chunkCount);
             document.setVectorized(vectorized);
             document.setUpdatedAt(LocalDateTime.now());
-            
+
             documentMapper.update(document);
-            
-            log.info("文档处理完成: {}, 分块数: {}", documentId, chunkCount);
+
+            log.info("文档处理完成: docId={}, chunks={}, vectorized={}", documentId, chunkCount, vectorized);
         } catch (Exception e) {
             log.error("处理文档失败: {}", documentId, e);
             // 更新文档状态为失败
@@ -202,18 +224,6 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
                 log.error("更新文档状态失败", ex);
             }
         }
-    }
-
-    /**
-     * 计算文档分块数量（简单实现：按段落分块）
-     */
-    private int calculateChunks(String content) {
-        if (content == null || content.trim().isEmpty()) {
-            return 0;
-        }
-        // 简单实现：按空行分块
-        String[] chunks = content.split("\\n\\s*\\n");
-        return chunks.length;
     }
 
     private KnowledgeDocumentResponse toResponse(KnowledgeDocument document) {
@@ -233,4 +243,3 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
         );
     }
 }
-
