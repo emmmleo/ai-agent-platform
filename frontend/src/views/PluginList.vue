@@ -2,7 +2,10 @@
   <div class="plugin-list">
     <div class="header">
       <h1>插件管理</h1>
-      <router-link to="/plugins/new" class="create-btn">注册插件</router-link>
+      <div class="header-actions">
+        <router-link to="/plugins/new" class="create-btn">注册插件</router-link>
+        <router-link to="/" class="back-btn">返回首页</router-link>
+      </div>
     </div>
 
     <div v-if="error" class="error-message">{{ error }}</div>
@@ -145,6 +148,12 @@ onMounted(() => {
   margin-bottom: 30px;
 }
 
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
 h1 {
   color: #2c3e50;
   margin: 0;
@@ -163,6 +172,20 @@ h1 {
 
 .create-btn:hover {
   background: #35a372;
+}
+
+.back-btn {
+  padding: 12px 24px;
+  background: #6c757d;
+  color: white;
+  text-decoration: none;
+  border-radius: 4px;
+  font-size: 16px;
+  transition: background 0.3s;
+}
+
+.back-btn:hover {
+  background: #5a6268;
 }
 
 .error-message {
