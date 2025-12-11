@@ -27,6 +27,21 @@ services:
       timeout: 5s
       retries: 5
 
+  pgvector-db:
+    image: pgvector/pgvector:pg16
+    container_name: codehubix-pgvector-db
+    environment:
+      POSTGRES_USER: vector_user
+      POSTGRES_PASSWORD: vector_pass
+      POSTGRES_DB: vector_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - codehubix_network
+    restart: unless-stopped
+
   # phpMyAdmin管理工具（未修改）
   phpmyadmin:
     image: phpmyadmin/phpmyadmin
@@ -62,11 +77,16 @@ services:
       - SPRING_DATASOURCE_USERNAME=demo_user
       - SPRING_DATASOURCE_PASSWORD=demo_pass_123
       - SERVER_PORT=8082
+      - VECTORSTORE_URL=jdbc:postgresql://pgvector-db:5432/vector_db
+      - VECTORSTORE_USERNAME=vector_user
+      - VECTORSTORE_PASSWORD=vector_pass
     ports:
       - "8082:8082"
     depends_on:
       mysql:
         condition: service_healthy
+      pgvector-db:
+        condition: service_started
     networks:
       - codehubix_network
     restart: unless-stopped
@@ -97,6 +117,8 @@ volumes:
   mysql_data:
     driver: local
   backend_logs:
+    driver: local
+  pgdata:
     driver: local
 
 networks:

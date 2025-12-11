@@ -111,7 +111,7 @@ check_docker() {
 
 # 检查端口是否被占用
 check_ports() {
-    local ports=(3306 8081 8082 80)
+    local ports=(3306 5432 8081 8082 80)
     local occupied=()
     
     for port in "${ports[@]}"; do
@@ -186,6 +186,9 @@ build_images() {
     print_info "拉取 phpMyAdmin 镜像: phpmyadmin/phpmyadmin..."
     docker pull phpmyadmin/phpmyadmin 2>/dev/null || print_warn "拉取 phpmyadmin/phpmyadmin 失败，将在启动时重试"
 
+    print_info "拉取向量数据库镜像: pgvector/pgvector:pg16..."
+    docker pull pgvector/pgvector:pg16 2>/dev/null || print_warn "拉取 pgvector 镜像失败，将在启动时重试"
+
     print_info "基础镜像拉取完成（已存在的镜像会跳过）"
     echo ""
 
@@ -242,6 +245,20 @@ start_services() {
         fi
     done
     print_info "MySQL 已就绪"
+
+    # 等待 pgvector 就绪
+    print_info "等待 pgvector 数据库启动..."
+    timeout=60
+    counter=0
+    while ! docker exec codehubix-pgvector-db pg_isready -U vector_user -d vector_db -h localhost >/dev/null 2>&1; do
+        sleep 2
+        counter=$((counter + 2))
+        if [ $counter -ge $timeout ]; then
+            print_error "pgvector 启动超时"
+            exit 1
+        fi
+    done
+    print_info "pgvector 已就绪"
     
     # 等待后端就绪
     print_info "等待后端服务启动..."
@@ -273,6 +290,7 @@ show_status() {
     echo -e "${GREEN}前端应用:${NC}    http://localhost"
     echo -e "${GREEN}后端API:${NC}     http://localhost:8082/api"
     echo -e "${GREEN}phpMyAdmin:${NC}   http://localhost:8081"
+    echo -e "${GREEN}pgvector:${NC}    本地 5432 端口，库 vector_db，用户 vector_user"
     echo ""
     print_info "默认登录账号："
     echo -e "  管理员: ${YELLOW}admin${NC} / ${YELLOW}123456${NC}"

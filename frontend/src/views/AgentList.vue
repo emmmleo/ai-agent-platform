@@ -6,6 +6,10 @@
         <p class="header-subtitle">创建和管理您的AI智能体</p>
       </div>
       <div class="header-actions">
+        <router-link to="/" class="back-btn">
+          <span class="btn-icon">⬅️</span>
+          返回首页
+        </router-link>
         <button @click="refreshAgents" :disabled="loading" class="refresh-btn">
           <span class="btn-icon">🔄</span>
           {{ loading ? '加载中...' : '刷新' }}
@@ -291,6 +295,7 @@ onMounted(() => {
   align-items: center;
 }
 
+.back-btn,
 .refresh-btn,
 .create-btn {
   display: flex;
@@ -305,6 +310,16 @@ onMounted(() => {
   transition: all 0.3s ease;
   text-decoration: none;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.back-btn {
+  background: #6c757d;
+  color: white;
+}
+
+.back-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(108, 117, 125, 0.3);
 }
 
 .refresh-btn {

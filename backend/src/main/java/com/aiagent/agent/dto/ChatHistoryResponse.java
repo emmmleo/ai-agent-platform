@@ -2,6 +2,7 @@ package com.aiagent.agent.dto;
 
 import java.util.ArrayList;
 import java.util.List;
+import com.aiagent.agent.dto.ChatResponse.RagContext;
 
 /**
  * 对话历史响应。
@@ -31,6 +32,7 @@ public class ChatHistoryResponse {
         private String type;
         private String content;
         private List<String> plugins;
+        private RagContext ragContext;
 
         public String getType() {
             return type;
@@ -54,6 +56,14 @@ public class ChatHistoryResponse {
 
         public void setPlugins(List<String> plugins) {
             this.plugins = plugins;
+        }
+
+        public RagContext getRagContext() {
+            return ragContext;
+        }
+
+        public void setRagContext(RagContext ragContext) {
+            this.ragContext = ragContext;
         }
     }
 }

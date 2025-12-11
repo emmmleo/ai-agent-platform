@@ -61,8 +61,44 @@
                 v-if="msg.type === 'assistant' && msg.plugins && msg.plugins.length"
                 class="plugin-bubble"
               >
-                已调用插件：{{ msg.plugins.join('、') }}
+                <span class="bubble-icon">🔧</span> 已调用插件：{{ msg.plugins.join('、') }}
               </div>
+              
+              <!-- RAG 引用展示 -->
+              <div 
+                v-if="msg.type === 'assistant' && msg.ragContext && msg.ragContext.success" 
+                class="rag-bubble-container"
+              >
+                <div class="rag-bubble">
+                  <span class="bubble-icon">📚</span> 
+                  已检索知识库：获取了 {{ msg.ragContext.references.length }} 个相关片段
+                  <span class="rag-status-badge" :class="{ success: msg.ragContext.success }">
+                    {{ msg.ragContext.success ? '✓' : '✗' }}
+                  </span>
+                </div>
+                <details class="rag-details">
+                  <summary class="rag-summary">
+                    <span class="summary-icon">▶</span>
+                    查看引用详情
+                  </summary>
+                  <div class="references-list">
+                    <div v-for="(ref, refIndex) in msg.ragContext.references" :key="refIndex" class="reference-item">
+                      <div class="reference-header">
+                        <span class="reference-index">{{ refIndex + 1 }}</span>
+                        <span class="reference-meta">
+                          <span class="reference-score">{{ (ref.score * 100).toFixed(1) }}% 匹配</span>
+                          <span class="reference-separator">•</span>
+                          <span class="reference-id">文档 #{{ ref.documentId }}</span>
+                          <span class="reference-separator">•</span>
+                          <span class="reference-kb">库 #{{ ref.knowledgeBaseId }}</span>
+                        </span>
+                      </div>
+                      <div class="reference-content">{{ ref.content }}</div>
+                    </div>
+                  </div>
+                </details>
+              </div>
+
               <div class="message-content">{{ msg.content }}</div>
             </div>
           </div>
@@ -98,7 +134,8 @@ import {
   deleteAgentSession,
   chatWithAgent,
   type Agent,
-  type ChatSession
+  type ChatSession,
+  type RagContext
 } from '../api/agent'
 
 const router = useRouter()
@@ -106,7 +143,13 @@ const route = useRoute()
 
 const agentId = Number(route.params.id)
 const agent = ref<Agent | null>(null)
-const messages = ref<Array<{ type: string; content: string; source?: string; plugins?: string[] }>>([])
+const messages = ref<Array<{ 
+  type: string; 
+  content: string; 
+  source?: string; 
+  plugins?: string[];
+  ragContext?: RagContext;
+}>>([])
 const sessions = ref<ChatSession[]>([])
 const selectedSessionId = ref<number | null>(null)
 const sessionMenuOpen = ref<number | null>(null)
@@ -145,6 +188,7 @@ const loadConversationHistory = async (sessionId?: number | null) => {
         type: msg.type,
         content: msg.content,
         plugins: msg.plugins && msg.plugins.length ? [...msg.plugins] : undefined,
+        ragContext: msg.ragContext
       }))
     messages.value = restored
     selectedSessionId.value = history.sessionId ?? targetId
@@ -155,7 +199,7 @@ const loadConversationHistory = async (sessionId?: number | null) => {
   }
 }
 
-const loadSessions = async (preferredSessionId?: number | null) => {
+const loadSessions = async (preferredSessionId?: number | null, reloadMessages = true) => {
   try {
     const result = await getAgentSessions(agentId)
     sessions.value = result.sessions || []
@@ -169,7 +213,9 @@ const loadSessions = async (preferredSessionId?: number | null) => {
       targetId = sessions.value[0].id
     }
     selectedSessionId.value = targetId
-    await loadConversationHistory(targetId)
+    if (reloadMessages) {
+      await loadConversationHistory(targetId)
+    }
   } catch (e: any) {
     console.error('加载会话列表失败:', e)
   }
@@ -281,6 +327,7 @@ const handleSend = async () => {
       content: response.answer,
       source: response.source,
       plugins: response.pluginsUsed && response.pluginsUsed.length ? response.pluginsUsed : undefined,
+      ragContext: response.ragContext
     })
 
     if (response.sessionId) {
@@ -288,7 +335,7 @@ const handleSend = async () => {
       sessionId = response.sessionId
     }
 
-    await loadSessions(sessionId)
+    await loadSessions(sessionId, false)
   } catch (e: any) {
     error.value = e.message || '对话失败'
     console.error('对话失败:', e)
@@ -615,13 +662,19 @@ h1 {
 
 .plugin-bubble {
   display: inline-block;
-  background: #e8f5e9;
-  border: 1px solid #c8e6c9;
-  color: #2c3e50;
-  font-size: 11px;
-  padding: 4px 10px;
+  background: linear-gradient(135deg, #e8f5e9 0%, #f1f8f4 100%);
+  border: 1px solid #a5d6a7;
+  color: #2e7d32;
+  font-size: 12px;
+  padding: 6px 14px;
   border-radius: 999px;
-  margin-bottom: 6px;
+  margin-bottom: 8px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+  font-weight: 500;
+}
+
+.bubble-icon {
+  margin-right: 4px;
 }
 
 .input-section {
@@ -690,6 +743,170 @@ h1 {
   .message {
     max-width: 90%;
   }
+}
+
+/* RAG 知识库调用样式 */
+.rag-bubble-container {
+  margin-bottom: 10px;
+}
+
+.rag-bubble {
+  display: inline-block;
+  background: linear-gradient(135deg, #e3f2fd 0%, #f1f8ff 100%);
+  border: 1px solid #90caf9;
+  color: #1565c0;
+  font-size: 12px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  margin-bottom: 6px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.rag-status-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #e0e0e0;
+  color: #757575;
+  font-size: 11px;
+  margin-left: 4px;
+}
+
+.rag-status-badge.success {
+  background: #4caf50;
+  color: white;
+}
+
+.rag-details {
+  margin-top: 6px;
+}
+
+.rag-summary {
+  padding: 8px 12px;
+  cursor: pointer;
+  font-size: 11px;
+  color: #1565c0;
+  user-select: none;
+  background: #f5f9ff;
+  border: 1px solid #e3f2fd;
+  border-radius: 6px;
+  transition: all 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.rag-summary:hover {
+  background: #e3f2fd;
+  border-color: #90caf9;
+}
+
+.rag-details[open] .rag-summary {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+  margin-bottom: 0;
+  background: #e3f2fd;
+}
+
+.summary-icon {
+  display: inline-block;
+  font-size: 10px;
+  transition: transform 0.2s ease;
+}
+
+.rag-details[open] .summary-icon {
+  transform: rotate(90deg);
+}
+
+.references-list {
+  padding: 12px;
+  background: #f5f9ff;
+  border: 1px solid #e3f2fd;
+  border-top: none;
+  border-bottom-left-radius: 6px;
+  border-bottom-right-radius: 6px;
+}
+
+.reference-item {
+  margin-bottom: 12px;
+  background: white;
+  border-radius: 8px;
+  padding: 12px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+  transition: box-shadow 0.2s ease;
+}
+
+.reference-item:last-child {
+  margin-bottom: 0;
+}
+
+.reference-item:hover {
+  box-shadow: 0 2px 6px rgba(0,0,0,0.12);
+}
+
+.reference-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-size: 11px;
+}
+
+.reference-index {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  background: linear-gradient(135deg, #1976d2 0%, #42a5f5 100%);
+  color: white;
+  border-radius: 50%;
+  font-weight: 600;
+  font-size: 11px;
+}
+
+.reference-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #757575;
+  flex: 1;
+}
+
+.reference-score {
+  color: #1976d2;
+  font-weight: 600;
+  background: #e3f2fd;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+.reference-separator {
+  color: #bdbdbd;
+}
+
+.reference-id,
+.reference-kb {
+  font-size: 10px;
+  color: #9e9e9e;
+}
+
+.reference-content {
+  background: #fafafa;
+  padding: 10px;
+  border-radius: 6px;
+  border-left: 3px solid #1976d2;
+  color: #424242;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  font-size: 12px;
 }
 </style>
 

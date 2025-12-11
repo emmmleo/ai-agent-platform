@@ -16,6 +16,7 @@ import com.aiagent.agent.entity.AgentConversationContext;
 import com.aiagent.agent.mapper.AgentConversationContextMapper;
 import com.aiagent.agent.mapper.AgentMapper;
 import com.aiagent.agent.service.AgentService;
+import com.aiagent.knowledgebase.util.VectorStoreService;
 import com.aiagent.plugin.client.PluginInvocationClient;
 import com.aiagent.plugin.client.PluginInvocationResult;
 import com.aiagent.plugin.entity.Plugin;
@@ -60,6 +61,7 @@ public class AgentServiceImpl implements AgentService {
     private final OpenApiToolingBuilder openApiToolingBuilder;
     private final PluginInvocationClient pluginInvocationClient;
     private final ObjectMapper objectMapper;
+    private final VectorStoreService vectorStoreService;
 
     public AgentServiceImpl(AgentMapper agentMapper,
                            WorkflowExecutionService workflowExecutionService,
@@ -68,7 +70,8 @@ public class AgentServiceImpl implements AgentService {
                            PluginMapper pluginMapper,
                            OpenApiToolingBuilder openApiToolingBuilder,
                            PluginInvocationClient pluginInvocationClient,
-                           ObjectMapper objectMapper) {
+                           ObjectMapper objectMapper,
+                           VectorStoreService vectorStoreService) {
         this.agentMapper = agentMapper;
         this.workflowExecutionService = workflowExecutionService;
         this.conversationContextMapper = conversationContextMapper;
@@ -77,6 +80,7 @@ public class AgentServiceImpl implements AgentService {
         this.openApiToolingBuilder = openApiToolingBuilder;
         this.pluginInvocationClient = pluginInvocationClient;
         this.objectMapper = objectMapper;
+        this.vectorStoreService = vectorStoreService;
     }
 
     @Override
@@ -169,7 +173,7 @@ public class AgentServiceImpl implements AgentService {
         }
 
         try {
-            ModelAnswer modelAnswer = callAIModel(agent, userId, null, request.getQuestion(), "", false);
+            ModelAnswer modelAnswer = callAIModel(agent, userId, null, request.getQuestion(), "", false, null);
             return new TestAgentResponse(modelAnswer.content(), modelAnswer.pluginsUsed());
         } catch (Exception e) {
             log.error("测试智能体失败", e);
@@ -227,7 +231,8 @@ public class AgentServiceImpl implements AgentService {
         String answer;
         String source = "direct";
         List<String> pluginsUsed = Collections.emptyList();
-            Long sessionId = request.getSessionId();
+        Long sessionId = request.getSessionId();
+        ChatResponse.RagContext ragContext = null;
 
         try {
             // 1. 如果配置了知识库，进行RAG检索
@@ -235,12 +240,20 @@ public class AgentServiceImpl implements AgentService {
             if (agent.getKnowledgeBaseIds() != null && !agent.getKnowledgeBaseIds().trim().isEmpty()) {
                 try {
                     List<Long> knowledgeBaseIds = parseJsonArray(agent.getKnowledgeBaseIds());
-                    context = retrieveFromKnowledgeBases(knowledgeBaseIds, request.getQuestion());
-                    if (!context.isEmpty()) {
+                    RetrievalResult retrievalResult = retrieveFromKnowledgeBases(knowledgeBaseIds, request.getQuestion());
+                    context = retrievalResult.context();
+                    ragContext = retrievalResult.ragContext();
+                    
+                    if (StringUtils.hasText(context)) {
                         source = "rag";
                     }
+                    
+                    log.info("RAG检索完成: context长度={}, ragContext.references={}", 
+                        context.length(), 
+                        ragContext != null && ragContext.getReferences() != null ? ragContext.getReferences().size() : 0);
                 } catch (Exception e) {
                     log.warn("RAG检索失败: {}", e.getMessage());
+                    ragContext = new ChatResponse.RagContext(false, "检索异常: " + e.getMessage(), Collections.emptyList());
                 }
             }
 
@@ -254,28 +267,46 @@ public class AgentServiceImpl implements AgentService {
                         pluginsUsed = Collections.emptyList();
                     } else {
                         // 工作流执行失败，回退到直接调用AI
-                        ModelAnswer modelAnswer = callAIModel(agent, userId, sessionId, request.getQuestion(), context, true);
+                        ModelAnswer modelAnswer = callAIModel(agent, userId, sessionId, request.getQuestion(), context, true, ragContext);
                         answer = modelAnswer.content();
                         pluginsUsed = modelAnswer.pluginsUsed();
                         sessionId = modelAnswer.sessionId();
+                        ragContext = modelAnswer.ragContext();
                     }
                 } catch (Exception e) {
                     log.warn("工作流执行失败: {}", e.getMessage());
                     // 工作流执行失败，回退到直接调用AI
-                    ModelAnswer modelAnswer = callAIModel(agent, userId, sessionId, request.getQuestion(), context, true);
+                    ModelAnswer modelAnswer = callAIModel(agent, userId, sessionId, request.getQuestion(), context, true, ragContext);
                     answer = modelAnswer.content();
                     pluginsUsed = modelAnswer.pluginsUsed();
                     sessionId = modelAnswer.sessionId();
+                    ragContext = modelAnswer.ragContext();
                 }
             } else {
                 // 3. 直接调用AI模型
-                ModelAnswer modelAnswer = callAIModel(agent, userId, sessionId, request.getQuestion(), context, true);
+                ModelAnswer modelAnswer = callAIModel(agent, userId, sessionId, request.getQuestion(), context, true, ragContext);
                 answer = modelAnswer.content();
                 pluginsUsed = modelAnswer.pluginsUsed();
                 sessionId = modelAnswer.sessionId();
+                ragContext = modelAnswer.ragContext();
             }
 
-            return new ChatResponse(answer, source, pluginsUsed, sessionId);
+            ChatResponse chatResponse = new ChatResponse(answer, source, pluginsUsed, sessionId, ragContext);
+            
+            log.info("准备返回响应: source={}, pluginsUsed={}, ragContext.references={}", 
+                source, 
+                pluginsUsed != null ? pluginsUsed.size() : 0,
+                ragContext != null && ragContext.getReferences() != null ? ragContext.getReferences().size() : 0);
+            
+            // 打印完整的响应对象用于调试
+            try {
+                String jsonResponse = objectMapper.writeValueAsString(chatResponse);
+                log.info("完整响应JSON: {}", jsonResponse);
+            } catch (Exception e) {
+                log.warn("无法序列化响应为JSON", e);
+            }
+
+            return chatResponse;
         } catch (Exception e) {
             log.error("智能体对话失败", e);
             throw new RuntimeException("智能体对话失败: " + e.getMessage(), e);
@@ -356,15 +387,69 @@ public class AgentServiceImpl implements AgentService {
     /**
      * 从知识库检索相关内容（RAG）
      */
-    private String retrieveFromKnowledgeBases(List<Long> knowledgeBaseIds, String question) {
-        // TODO: 实现向量检索逻辑
-        // 1. 将问题向量化
-        // 2. 在知识库中搜索相似文档块
-        // 3. 返回相关上下文
-        
-        // 目前返回模拟结果
-        log.info("RAG检索：知识库IDs: {}, 问题: {}", knowledgeBaseIds, question);
-        return "相关上下文：这是从知识库检索到的相关内容（模拟）。实际应用中，这里会进行向量相似度搜索。";
+    private RetrievalResult retrieveFromKnowledgeBases(List<Long> knowledgeBaseIds, String question) {
+        if (knowledgeBaseIds == null || knowledgeBaseIds.isEmpty()) {
+            return new RetrievalResult("", null);
+        }
+
+        try {
+            log.info("开始执行RAG检索: knowledgeBaseIds={}, question={}", knowledgeBaseIds, question);
+            
+            // 先进行诊断检查（仅在DEBUG级别时输出完整信息）
+            if (log.isDebugEnabled()) {
+                String diagnoseInfo = vectorStoreService.diagnose(knowledgeBaseIds);
+                log.debug("向量存储诊断:\n{}", diagnoseInfo);
+            }
+            
+            // 调用向量服务进行检索，默认取Top 1
+            List<VectorStoreService.ChunkSearchResult> results = vectorStoreService.search(knowledgeBaseIds, question, null);
+            
+            if (results.isEmpty()) {
+                log.warn("RAG检索未找到匹配内容，执行诊断检查...");
+                String diagnoseInfo = vectorStoreService.diagnose(knowledgeBaseIds);
+                log.warn("诊断结果:\n{}", diagnoseInfo);
+                
+                ChatResponse.RagContext ragContext = new ChatResponse.RagContext(false, "未找到相关内容", Collections.emptyList());
+                return new RetrievalResult("", ragContext);
+            }
+
+            log.info("RAG检索成功，命中 {} 个片段", results.size());
+
+            // 格式化检索结果
+            StringBuilder contextBuilder = new StringBuilder();
+            List<ChatResponse.RagReference> references = new ArrayList<>();
+            contextBuilder.append("基于以下知识库片段回答问题：\n\n");
+            
+            for (int i = 0; i < results.size(); i++) {
+                VectorStoreService.ChunkSearchResult result = results.get(i);
+                
+                log.debug("片段 #{}: kbId={}, docId={}, score={}, content_preview={}", 
+                    i + 1, result.knowledgeBaseId(), result.documentId(), result.score(), 
+                    result.content() != null && result.content().length() > 50 ? result.content().substring(0, 50) + "..." : result.content());
+
+                // 构建上下文文本
+                contextBuilder.append(String.format("[参考片段 %d] (相关度: %.4f)\n", i + 1, result.score()));
+                contextBuilder.append(result.content());
+                contextBuilder.append("\n\n");
+                
+                // 构建引用元数据
+                references.add(new ChatResponse.RagReference(
+                    result.knowledgeBaseId(),
+                    result.documentId(),
+                    result.content(),
+                    result.score()
+                ));
+            }
+            
+            ChatResponse.RagContext ragContext = new ChatResponse.RagContext(true, "检索成功", references);
+            return new RetrievalResult(contextBuilder.toString(), ragContext);
+            
+        } catch (Exception e) {
+            log.error("RAG检索失败: knowledgeBaseIds={}, question={}", knowledgeBaseIds, question, e);
+            // 检索失败不应阻断对话，返回空字符串降级处理，并返回错误信息
+            ChatResponse.RagContext ragContext = new ChatResponse.RagContext(false, "检索失败: " + e.getMessage(), Collections.emptyList());
+            return new RetrievalResult("", ragContext);
+        }
     }
 
     /**
@@ -399,7 +484,8 @@ public class AgentServiceImpl implements AgentService {
                                    Long sessionId,
                                    String question,
                                    String context,
-                                   boolean persistContext) {
+                                   boolean persistContext,
+                                   ChatResponse.RagContext ragContext) {
         String systemPrompt = agent.getSystemPrompt() != null ? agent.getSystemPrompt() : "";
         Map<String, Object> modelConfig = parseModelConfig(agent.getModelConfig());
 
@@ -410,8 +496,17 @@ public class AgentServiceImpl implements AgentService {
         List<DeepSeekClient.Message> conversation = conversationState.messages();
         DeepSeekClient client = createClient(conversation);
 
-        String userContent = buildUserContent(context, question);
-        conversation.add(new DeepSeekClient.Message("user", userContent));
+        // 如果有知识库上下文，作为临时的系统消息添加（不持久化到历史中）
+        int tempMessageStartIndex = conversation.size();
+        if (StringUtils.hasText(context)) {
+            DeepSeekClient.Message contextMessage = new DeepSeekClient.Message("system", context);
+            conversation.add(contextMessage);
+            client.appendMessage(contextMessage);
+        }
+
+        // 只添加用户的原始问题
+        DeepSeekClient.Message userMessage = new DeepSeekClient.Message("user", question);
+        conversation.add(userMessage);
 
         PluginTooling pluginTooling = resolvePluginTooling(agent);
         ModelAnswer modelAnswer;
@@ -420,15 +515,20 @@ public class AgentServiceImpl implements AgentService {
             if (assistantMessage == null || !StringUtils.hasText(assistantMessage.getContent())) {
                 throw new IllegalStateException("LLM响应为空");
             }
+            assistantMessage.setRagContext(ragContext);
             conversation.add(assistantMessage);
-            modelAnswer = new ModelAnswer(assistantMessage.getContent(), Collections.emptyList(), null);
+            modelAnswer = new ModelAnswer(assistantMessage.getContent(), Collections.emptyList(), null, ragContext);
         } else {
-            modelAnswer = chatWithFunctionCalling(client, conversation, context, question, modelConfig, pluginTooling);
+            modelAnswer = chatWithFunctionCalling(client, conversation, context, question, modelConfig, pluginTooling, ragContext);
         }
 
         if (persistContext) {
+            // 移除临时的知识库上下文消息，只保存用户问题和助手回复
+            if (StringUtils.hasText(context) && tempMessageStartIndex < conversation.size()) {
+                conversation.remove(tempMessageStartIndex);
+            }
             Long persistedSessionId = persistConversationContext(agent.getId(), userId, conversation, conversationState.existingContext());
-            modelAnswer = new ModelAnswer(modelAnswer.content(), modelAnswer.pluginsUsed(), persistedSessionId);
+            modelAnswer = new ModelAnswer(modelAnswer.content(), modelAnswer.pluginsUsed(), persistedSessionId, modelAnswer.ragContext());
         }
         return modelAnswer;
     }
@@ -460,7 +560,8 @@ public class AgentServiceImpl implements AgentService {
                                                 String context,
                                                 String question,
                                                 Map<String, Object> modelConfig,
-                                                PluginTooling pluginTooling) {
+                                                PluginTooling pluginTooling,
+                                                ChatResponse.RagContext ragContext) {
         Set<String> invokedPlugins = new LinkedHashSet<>();
         DeepSeekClient.Message assistantMessage = client.chat(context, question, pluginTooling.getTools(), modelConfig);
         if (assistantMessage == null) {
@@ -479,7 +580,8 @@ public class AgentServiceImpl implements AgentService {
                 if (!plugins.isEmpty()) {
                     assistantMessage.setPlugins(new ArrayList<>(plugins));
                 }
-                return new ModelAnswer(content, plugins, null);
+                assistantMessage.setRagContext(ragContext);
+                return new ModelAnswer(content, plugins, null, ragContext);
             }
             for (DeepSeekClient.ToolCall toolCall : toolCalls) {
                 log.info("执行 \"{}\"", toolCall.getFunction().getName());
@@ -685,14 +787,6 @@ public class AgentServiceImpl implements AgentService {
         }
     }
 
-    private String buildUserContent(String context, String question) {
-        StringBuilder builder = new StringBuilder();
-        if (StringUtils.hasText(context)) {
-            builder.append("相关上下文：").append(context).append("\n\n");
-        }
-        builder.append(question);
-        return builder.toString();
-    }
 
     private List<ChatHistoryResponse.ChatHistoryMessage> toChatHistoryMessages(List<DeepSeekClient.Message> history) {
         if (history == null || history.isEmpty()) {
@@ -715,6 +809,7 @@ public class AgentServiceImpl implements AgentService {
                 if (plugins != null && !plugins.isEmpty()) {
                     dto.setPlugins(new ArrayList<>(plugins));
                 }
+                dto.setRagContext(message.getRagContext());
             }
             result.add(dto);
         }
@@ -771,23 +866,21 @@ public class AgentServiceImpl implements AgentService {
         );
     }
 
-        private String generateMockAnswer(String systemPrompt, String question) {
-        // 方法保留以兼容旧流程，但不再在生产路径中调用
-        String promptPreview = systemPrompt != null && systemPrompt.length() > 50 
-            ? systemPrompt.substring(0, 50) + "..." 
-            : (systemPrompt != null ? systemPrompt : "无");
-        return String.format("基于系统提示词：%s\n\n问题：%s\n\n回答：这是一个模拟回答。实际应用中，这里会调用AI模型（如OpenAI、Claude等）来生成回答。", 
-            promptPreview, question);
-        }
-
     private record ConversationState(List<DeepSeekClient.Message> messages,
                                      AgentConversationContext existingContext) {}
 
-    private record ModelAnswer(String content, List<String> pluginsUsed, Long sessionId) {
+    private record ModelAnswer(String content, List<String> pluginsUsed, Long sessionId, ChatResponse.RagContext ragContext) {
         private ModelAnswer {
             pluginsUsed = pluginsUsed == null ? Collections.emptyList() : List.copyOf(pluginsUsed);
+        }
+        
+        // 便捷构造器，用于不需要 ragContext 的情况
+        public ModelAnswer(String content, List<String> pluginsUsed, Long sessionId) {
+            this(content, pluginsUsed, sessionId, null);
         }
     }
 
     private record ToolCallResult(String payload, String pluginName) {}
+
+    private record RetrievalResult(String context, ChatResponse.RagContext ragContext) {}
 }
