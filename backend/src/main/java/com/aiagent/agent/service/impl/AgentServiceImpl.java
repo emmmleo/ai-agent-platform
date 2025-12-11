@@ -401,8 +401,8 @@ public class AgentServiceImpl implements AgentService {
                 log.debug("向量存储诊断:\n{}", diagnoseInfo);
             }
             
-            // 调用向量服务进行检索，默认取Top 5
-            List<VectorStoreService.ChunkSearchResult> results = vectorStoreService.search(knowledgeBaseIds, question, 5);
+            // 调用向量服务进行检索，默认取Top 1
+            List<VectorStoreService.ChunkSearchResult> results = vectorStoreService.search(knowledgeBaseIds, question, null);
             
             if (results.isEmpty()) {
                 log.warn("RAG检索未找到匹配内容，执行诊断检查...");

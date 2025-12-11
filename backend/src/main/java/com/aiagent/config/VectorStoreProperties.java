@@ -41,7 +41,7 @@ public class VectorStoreProperties {
     /**
      * 检索默认 topK
      */
-    private int topK = 1;
+    private int topK = 5;
 
     /**
      * 最小相似度阈值

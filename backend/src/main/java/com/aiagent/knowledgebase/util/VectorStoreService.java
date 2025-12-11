@@ -214,8 +214,24 @@ public class VectorStoreService {
             log.info("应用最小分数过滤 (minScore={}): 过滤前={}, 过滤后={}", minScore, originalSize, results.size());
         }
 
-        log.info("最终返回 {} 条检索结果", results.size());
-        return results;
+        if (results.isEmpty()) {
+            log.info("最终返回 0 条检索结果");
+            return Collections.emptyList();
+        }
+        // 获取分数最高的那个结果（如果有多个最高则取第一个）
+        ChunkSearchResult topResult = results.stream()
+                .max((a, b) -> Double.compare(a.score(), b.score()))
+                .orElse(null);
+        if (topResult != null) {
+            log.info("最终返回分数最高的1条检索结果: score={}, docId={}, kbId={}", 
+                String.format("%.4f", topResult.score()), 
+                topResult.documentId(), 
+                topResult.knowledgeBaseId());
+            return Collections.singletonList(topResult);
+        } else {
+            log.info("最终返回 0 条检索结果");
+            return Collections.emptyList();
+        }
     }
 
     /**
