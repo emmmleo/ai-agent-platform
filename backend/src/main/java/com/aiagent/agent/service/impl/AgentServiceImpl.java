@@ -409,7 +409,7 @@ public class AgentServiceImpl implements AgentService {
                 String diagnoseInfo = vectorStoreService.diagnose(knowledgeBaseIds);
                 log.warn("诊断结果:\n{}", diagnoseInfo);
                 
-                ChatResponse.RagContext ragContext = new ChatResponse.RagContext(true, "未找到相关内容", Collections.emptyList());
+                ChatResponse.RagContext ragContext = new ChatResponse.RagContext(false, "未找到相关内容", Collections.emptyList());
                 return new RetrievalResult("", ragContext);
             }
 

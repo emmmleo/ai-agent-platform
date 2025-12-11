@@ -158,6 +158,12 @@ if %NO_BUILD%==1 (
         if %errorlevel% neq 0 (
             echo [WARN] 拉取 phpmyadmin/phpmyadmin 失败，将在启动时重试
         )
+
+        echo [INFO] 拉取向量数据库镜像: pgvector/pgvector:pg16...
+        docker pull pgvector/pgvector:pg16 2>nul
+        if %errorlevel% neq 0 (
+            echo [WARN] 拉取 pgvector/pgvector:pg16 失败，将在启动时重试
+        )
         
         echo [INFO] 基础镜像拉取完成（已存在的镜像会跳过）
         echo.
@@ -211,7 +217,7 @@ if %errorlevel% neq 0 (
     echo [ERROR] 服务启动失败
     echo [INFO] 请检查以下内容:
     echo   1. Docker Desktop 是否正在运行
-    echo   2. 端口是否被占用: netstat -ano ^| findstr ":3306 :8081 :8082 :80"
+    echo   2. 端口是否被占用: netstat -ano ^| findstr ":3306 :5432 :8081 :8082 :80"
     echo   3. 查看详细错误: docker-compose logs
     exit /b 1
 )
@@ -247,6 +253,36 @@ if %COUNTER% geq %TIMEOUT% (
 goto :wait_mysql
 
 :mysql_ready
+echo.
+
+REM 等待 pgvector 就绪
+echo [INFO] 等待 pgvector 数据库启动...
+set TIMEOUT=60
+set COUNTER=0
+:wait_pgvector
+timeout /t 2 /nobreak >nul
+
+REM 检查容器是否存在
+docker ps --filter "name=codehubix-pgvector-db" --format "{{.Names}}" | findstr /C:"codehubix-pgvector-db" >nul 2>&1
+if %errorlevel% neq 0 (
+    echo [ERROR] pgvector 容器未找到，请检查 docker-compose up 是否成功
+    exit /b 1
+)
+
+docker exec codehubix-pgvector-db pg_isready -U vector_user -d vector_db -h localhost >nul 2>&1
+if %errorlevel% equ 0 (
+    echo [INFO] pgvector 已就绪
+    goto :pgvector_ready
+)
+set /a COUNTER+=2
+if %COUNTER% geq %TIMEOUT% (
+    echo [ERROR] pgvector 启动超时，请检查日志: docker logs codehubix-pgvector-db
+    echo [INFO] 提示: 可以手动检查容器状态: docker-compose ps
+    exit /b 1
+)
+goto :wait_pgvector
+
+:pgvector_ready
 echo.
 
 REM 等待后端就绪
@@ -295,6 +331,7 @@ echo ==========================================
 echo 前端应用:    http://localhost
 echo 后端API:     http://localhost:8082/api
 echo phpMyAdmin:  http://localhost:8081
+echo pgvector:    本地 5432 端口，库 vector_db，用户 vector_user
 echo.
 echo 默认登录账号：  
 echo   管理员: admin / 123456
