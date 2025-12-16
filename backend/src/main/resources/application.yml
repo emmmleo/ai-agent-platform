@@ -1,0 +1,65 @@
+spring:
+  application:
+    name: demo
+  datasource:
+    jdbc-url: jdbc:mysql://localhost:3306/demo_db?useSSL=false&serverTimezone=Asia/Shanghai&characterEncoding=UTF-8
+    username: demo_user
+    password: demo_pass_123
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+# MyBatis配置
+mybatis:
+  mapper-locations: classpath:mapper/**/*.xml
+  type-aliases-package: com.aiagent.user.entity,com.aiagent.role.entity,com.aiagent.menu.entity,com.aiagent.agent.entity,com.aiagent.knowledgebase.entity,com.aiagent.workflow.entity,com.aiagent.plugin.entity
+  configuration:
+    map-underscore-to-camel-case: true
+
+# JWT配置
+jwt:
+  secret: your-secret-key-change-in-production-environment
+  expiration: 3600000
+  header: Authorization
+  prefix: "Bearer "
+
+# 日志配置
+logging:
+  config: classpath:logback/logback-spring.xml
+  level:
+    root: INFO
+    com.aiagent: DEBUG
+    org.mybatis: DEBUG
+    com.zaxxer.hikari: INFO
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+
+# 服务器配置
+server:
+  port: 8082
+  servlet:
+    context-path: /api
+
+# LLM配置（使用DeepSeek）
+llm:
+  enabled: true
+  base-url: https://api.deepseek.com
+  model: deepseek-chat
+  api-key: sk-0b624e3926fe4e80b56de6de97d833e1
+  connect-timeout: 10s
+  read-timeout: 60s
+
+# Gemini Embedding 配置
+gemini:
+  enabled: true
+  api-key: AIzaSyBchmdLJjZWlLGeT6h4lw7jfD9LpPIIkXQ
+  embedding-model: gemini-embedding-001
+
+# PGVector 向量存储配置
+vectorstore:
+  enabled: true
+  url: jdbc:postgresql://localhost:5432/vector_db
+  username: vector_user
+  password: vector_pass
+  table: kb_chunks
+  dimension: 768
+  top-k: 5
+  min-score: 0.0

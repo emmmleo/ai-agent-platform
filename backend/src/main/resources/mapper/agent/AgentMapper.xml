@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.aiagent.agent.mapper.AgentMapper">
+
+    <resultMap id="AgentResultMap" type="com.aiagent.agent.entity.Agent">
+        <id property="id" column="id"/>
+        <result property="userId" column="user_id"/>
+        <result property="name" column="name"/>
+        <result property="description" column="description"/>
+        <result property="systemPrompt" column="system_prompt"/>
+        <result property="userPromptTemplate" column="user_prompt_template"/>
+        <result property="modelConfig" column="model_config"/>
+        <result property="workflowId" column="workflow_id"/>
+        <result property="knowledgeBaseIds" column="knowledge_base_ids"/>
+        <result property="pluginIds" column="plugin_ids"/>
+        <result property="status" column="status"/>
+        <result property="createdAt" column="created_at"/>
+        <result property="updatedAt" column="updated_at"/>
+    </resultMap>
+
+    <select id="findByUserId" parameterType="long" resultMap="AgentResultMap">
+        SELECT id, user_id, name, description, system_prompt, user_prompt_template,
+               model_config, workflow_id, knowledge_base_ids, plugin_ids, status,
+               created_at, updated_at
+        FROM agent
+        WHERE user_id = #{userId}
+        ORDER BY created_at DESC
+    </select>
+
+    <select id="findById" parameterType="long" resultMap="AgentResultMap">
+        SELECT id, user_id, name, description, system_prompt, user_prompt_template,
+               model_config, workflow_id, knowledge_base_ids, plugin_ids, status,
+               created_at, updated_at
+        FROM agent
+        WHERE id = #{id}
+    </select>
+
+    <select id="findByIdAndUserId" resultMap="AgentResultMap">
+        SELECT id, user_id, name, description, system_prompt, user_prompt_template,
+               model_config, workflow_id, knowledge_base_ids, plugin_ids, status,
+               created_at, updated_at
+        FROM agent
+        WHERE id = #{id} AND user_id = #{userId}
+    </select>
+
+    <insert id="insert" parameterType="com.aiagent.agent.entity.Agent" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO agent (user_id, name, description, system_prompt, user_prompt_template,
+                          model_config, workflow_id, knowledge_base_ids, plugin_ids, status,
+                          created_at, updated_at)
+        VALUES (#{userId}, #{name}, #{description}, #{systemPrompt}, #{userPromptTemplate},
+                #{modelConfig}, #{workflowId}, #{knowledgeBaseIds}, #{pluginIds}, #{status},
+                #{createdAt}, #{updatedAt})
+    </insert>
+
+    <update id="update" parameterType="com.aiagent.agent.entity.Agent">
+        UPDATE agent
+        SET name = #{name},
+            description = #{description},
+            system_prompt = #{systemPrompt},
+            user_prompt_template = #{userPromptTemplate},
+            model_config = #{modelConfig},
+            workflow_id = #{workflowId},
+            knowledge_base_ids = #{knowledgeBaseIds},
+            plugin_ids = #{pluginIds},
+            status = #{status},
+            updated_at = #{updatedAt}
+        WHERE id = #{id} AND user_id = #{userId}
+    </update>
+
+    <delete id="deleteById" parameterType="long">
+        DELETE FROM agent WHERE id = #{id}
+    </delete>
+
+</mapper>

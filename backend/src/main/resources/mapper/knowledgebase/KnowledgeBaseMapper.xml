@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.aiagent.knowledgebase.mapper.KnowledgeBaseMapper">
+
+    <resultMap id="KnowledgeBaseResultMap" type="com.aiagent.knowledgebase.entity.KnowledgeBase">
+        <id property="id" column="id"/>
+        <result property="userId" column="user_id"/>
+        <result property="name" column="name"/>
+        <result property="description" column="description"/>
+        <result property="createdAt" column="created_at"/>
+        <result property="updatedAt" column="updated_at"/>
+    </resultMap>
+
+    <select id="findByUserId" parameterType="long" resultMap="KnowledgeBaseResultMap">
+        SELECT id, user_id, name, description, created_at, updated_at
+        FROM knowledge_base
+        WHERE user_id = #{userId}
+        ORDER BY created_at DESC
+    </select>
+
+    <select id="findById" parameterType="long" resultMap="KnowledgeBaseResultMap">
+        SELECT id, user_id, name, description, created_at, updated_at
+        FROM knowledge_base
+        WHERE id = #{id}
+    </select>
+
+    <select id="findByIdAndUserId" resultMap="KnowledgeBaseResultMap">
+        SELECT id, user_id, name, description, created_at, updated_at
+        FROM knowledge_base
+        WHERE id = #{id} AND user_id = #{userId}
+    </select>
+
+    <insert id="insert" parameterType="com.aiagent.knowledgebase.entity.KnowledgeBase" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO knowledge_base (user_id, name, description, created_at, updated_at)
+        VALUES (#{userId}, #{name}, #{description}, #{createdAt}, #{updatedAt})
+    </insert>
+
+    <update id="update" parameterType="com.aiagent.knowledgebase.entity.KnowledgeBase">
+        UPDATE knowledge_base
+        SET name = #{name},
+            description = #{description},
+            updated_at = #{updatedAt}
+        WHERE id = #{id} AND user_id = #{userId}
+    </update>
+
+    <delete id="deleteById" parameterType="long">
+        DELETE FROM knowledge_base WHERE id = #{id}
+    </delete>
+
+</mapper>
+

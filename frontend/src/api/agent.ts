@@ -1,0 +1,217 @@
+// 智能体相关 API
+import { get, post, put, del } from '../utils/request'
+
+export interface Agent {
+  id: number
+  userId: number
+  name: string
+  description?: string
+  systemPrompt?: string
+  userPromptTemplate?: string
+  modelConfig?: string
+  workflowId?: number
+  knowledgeBaseIds?: string
+  pluginIds?: string
+  status: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface CreateAgentRequest {
+  name: string
+  description?: string
+  systemPrompt?: string
+  userPromptTemplate?: string
+  modelConfig?: string
+  workflowId?: number
+  knowledgeBaseIds?: string
+  pluginIds?: string
+}
+
+export interface UpdateAgentRequest {
+  name: string
+  description?: string
+  systemPrompt?: string
+  userPromptTemplate?: string
+  modelConfig?: string
+  workflowId?: number
+  knowledgeBaseIds?: string
+  pluginIds?: string
+  status?: string
+}
+
+export interface TestAgentRequest {
+  question: string
+}
+
+export interface TestAgentResponse {
+  answer: string
+  pluginsUsed?: string[]
+  ragContext?: RagContext
+}
+
+export interface ChatRequest {
+  question: string
+}
+
+export interface RagReference {
+  knowledgeBaseId: number
+  documentId: number
+  content: string
+  score: number
+}
+
+export interface RagContext {
+  success: boolean
+  message: string
+  references: RagReference[]
+}
+
+export interface ChatResponse {
+  answer: string
+  source: string // direct/rag/workflow
+  pluginsUsed?: string[]
+  sessionId?: number
+  ragContext?: RagContext
+}
+
+export interface ChatHistoryMessage {
+  type: string
+  content: string
+  plugins?: string[]
+  ragContext?: RagContext
+}
+
+export interface ChatHistoryResponse {
+  messages: ChatHistoryMessage[]
+  sessionId?: number
+}
+
+export interface ChatSession {
+  id: number
+  title: string
+  updatedAt: string
+}
+
+export interface ChatSessionsResponse {
+  sessions: ChatSession[]
+}
+
+// API 响应格式
+interface ApiResponse<T> {
+  code: number
+  message: string
+  data: T
+}
+
+// 获取智能体列表
+export const getAgents = async (): Promise<Agent[]> => {
+  const response = await get<ApiResponse<Agent[]>>('/v1/agents')
+  if (response.code === 200 && response.data) {
+    return response.data
+  }
+  throw new Error(response.message || '获取智能体列表失败')
+}
+
+// 获取智能体详情
+export const getAgent = async (id: number): Promise<Agent> => {
+  const response = await get<ApiResponse<Agent>>(`/v1/agents/${id}`)
+  if (response.code === 200 && response.data) {
+    return response.data
+  }
+  throw new Error(response.message || '获取智能体详情失败')
+}
+
+// 创建智能体
+export const createAgent = async (data: CreateAgentRequest): Promise<Agent> => {
+  const response = await post<ApiResponse<Agent>>('/v1/agents', data)
+  if (response.code === 200 && response.data) {
+    return response.data
+  }
+  throw new Error(response.message || '创建智能体失败')
+}
+
+// 更新智能体
+export const updateAgent = async (id: number, data: UpdateAgentRequest): Promise<Agent> => {
+  const response = await put<ApiResponse<Agent>>(`/v1/agents/${id}`, data)
+  if (response.code === 200 && response.data) {
+    return response.data
+  }
+  throw new Error(response.message || '更新智能体失败')
+}
+
+// 删除智能体
+export const deleteAgent = async (id: number): Promise<void> => {
+  const response = await del<ApiResponse<void>>(`/v1/agents/${id}`)
+  if (response.code !== 200) {
+    throw new Error(response.message || '删除智能体失败')
+  }
+}
+
+// 测试智能体
+export const testAgent = async (id: number, question: string): Promise<TestAgentResponse> => {
+  const response = await post<ApiResponse<TestAgentResponse>>(
+    `/v1/agents/${id}/test`,
+    { question }
+  )
+  if (response.code === 200 && response.data) {
+    return response.data
+  }
+  throw new Error(response.message || '测试智能体失败')
+}
+
+// 发布智能体
+export const publishAgent = async (id: number): Promise<Agent> => {
+  const response = await post<ApiResponse<Agent>>(`/v1/agents/${id}/publish`, {})
+  if (response.code === 200 && response.data) {
+    return response.data
+  }
+  throw new Error(response.message || '发布智能体失败')
+}
+
+// 与智能体对话
+export const chatWithAgent = async (id: number, question: string, sessionId?: number): Promise<ChatResponse> => {
+  const response = await post<ApiResponse<ChatResponse>>(
+    `/v1/agents/${id}/chat`,
+    { question, sessionId }
+  )
+  if (response.code === 200 && response.data) {
+    return response.data
+  }
+  throw new Error(response.message || '对话失败')
+}
+
+// 获取对话历史
+export const getAgentConversation = async (id: number, sessionId: number): Promise<ChatHistoryResponse> => {
+  const response = await get<ApiResponse<ChatHistoryResponse>>(`/v1/agents/${id}/conversation`, { sessionId })
+  if (response.code === 200 && response.data) {
+    return response.data
+  }
+  throw new Error(response.message || '获取对话历史失败')
+}
+
+// 获取会话列表
+export const getAgentSessions = async (id: number): Promise<ChatSessionsResponse> => {
+  const response = await get<ApiResponse<ChatSessionsResponse>>(`/v1/agents/${id}/sessions`)
+  if (response.code === 200 && response.data) {
+    return response.data
+  }
+  throw new Error(response.message || '获取会话列表失败')
+}
+
+// 创建会话
+export const createAgentSession = async (id: number): Promise<ChatSession> => {
+  const response = await post<ApiResponse<ChatSession>>(`/v1/agents/${id}/sessions`, {})
+  if (response.code === 200 && response.data) {
+    return response.data
+  }
+  throw new Error(response.message || '创建会话失败')
+}
+
+// 删除会话
+export const deleteAgentSession = async (agentId: number, sessionId: number): Promise<void> => {
+  const response = await del<ApiResponse<void>>(`/v1/agents/${agentId}/sessions/${sessionId}`)
+  if (response.code !== 200) {
+    throw new Error(response.message || '删除会话失败')
+  }
+}
