@@ -145,6 +145,81 @@
             </div>
           </div>
 
+          <!-- HTTP Node Fields -->
+          <div v-if="editingNode.type === 'http'">
+            <div class="form-group">
+              <label>请求 URL</label>
+              <input v-model="editForm.data.url" type="text" placeholder="https://api.example.com/data" />
+            </div>
+            <div class="form-group">
+              <label>请求方法 (Method)</label>
+              <select v-model="editForm.data.method">
+                <option value="GET">GET</option>
+                <option value="POST">POST</option>
+                <option value="PUT">PUT</option>
+                <option value="DELETE">DELETE</option>
+                <option value="PATCH">PATCH</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Headers (JSON格式)</label>
+              <textarea v-model="editForm.data.headers" rows="3" placeholder='{ "Content-Type": "application/json" }'></textarea>
+              <div class="help-text">请输入标准 JSON 格式的 Key-Value 对</div>
+            </div>
+            <div class="form-group">
+              <label>Body (请求体)</label>
+              <textarea v-model="editForm.data.body" rows="5" placeholder='{ "key": "value" } or Raw Text'></textarea>
+              <div class="help-text">支持变量: {input.param}, {nodeId.data.field}</div>
+            </div>
+            <div class="form-row" style="display: flex; gap: 10px;">
+                <div class="form-group" style="flex: 1;">
+                  <label>超时时间 (ms)</label>
+                  <input v-model.number="editForm.data.timeout" type="number" placeholder="10000" />
+                </div>
+                <div class="form-group" style="flex: 1;">
+                  <label>重试次数</label>
+                  <input v-model.number="editForm.data.retryCount" type="number" placeholder="0" />
+                </div>
+            </div>
+            <div class="form-group">
+               <label>
+                 <input type="checkbox" v-model="editForm.data.validateSSL" /> 验证 SSL 证书
+               </label>
+            </div>
+          </div>
+
+          <!-- Knowledge Retrieval Node Fields -->
+          <div v-if="editingNode.type === 'knowledge_retrieval'">
+             <div class="form-group">
+               <label>查询文本 (Query)</label>
+               <input v-model="editForm.data.query" type="text" placeholder="请输入查询内容，支持变量 {input.q}" />
+             </div>
+             
+             <div class="form-group">
+               <label>选择知识库 (多选)</label>
+               <div style="max-height: 150px; overflow-y: auto; border: 1px solid #ddd; padding: 5px; border-radius: 4px;">
+                  <div v-for="kb in knowledgeBases" :key="kb.id" style="margin-bottom: 5px;">
+                     <label style="display: flex; align-items: center; gap: 8px; font-weight: normal; margin: 0;">
+                        <input type="checkbox" :value="kb.id" v-model="editForm.data.knowledgeBaseIds" />
+                        {{ kb.name }}
+                     </label>
+                  </div>
+                  <div v-if="knowledgeBases.length === 0" style="color: #999; font-size: 12px; text-align: center;">无可用知识库</div>
+               </div>
+             </div>
+
+             <div class="form-row" style="display: flex; gap: 10px;">
+                <div class="form-group" style="flex: 1;">
+                  <label>返回数量 (Top K)</label>
+                  <input v-model.number="editForm.data.topK" type="number" min="1" max="20" />
+                </div>
+                <div class="form-group" style="flex: 1;">
+                  <label>最小相似度 (Min Score)</label>
+                  <input v-model.number="editForm.data.minScore" type="number" min="0" max="1" step="0.1" />
+                </div>
+             </div>
+          </div>
+
           <!-- Condition Node Fields -->
           <div v-if="editingNode.type === 'condition'">
              <!-- Placeholder for condition config -->
@@ -188,6 +263,7 @@ import {
   type WorkflowEdge,
   type WorkflowDefinition,
 } from '../api/workflow'
+import { getKnowledgeBases, type KnowledgeBase } from '../api/knowledgebase'
 
 const router = useRouter()
 const route = useRoute()
@@ -222,9 +298,30 @@ const editForm = ref<any>({
 const handleEditNode = (node: WorkflowNode) => {
   editingNode.value = node
   // Deep copy to avoid direct mutation
+  const data = JSON.parse(JSON.stringify(node.data || {}))
+  
+  // HTTP Node: Convert headers object back to string for textarea
+  if (node.type === 'http') {
+      if (data.headers && typeof data.headers === 'object') {
+          data.headers = JSON.stringify(data.headers, null, 2)
+      }
+      // Defaults
+      if (data.method === undefined) data.method = 'GET'
+      if (data.timeout === undefined) data.timeout = 10000
+      if (data.retryCount === undefined) data.retryCount = 0
+      if (data.validateSSL === undefined) data.validateSSL = true
+  }
+
+  // Knowledge Node Defaults
+  if (node.type === 'knowledge_retrieval') {
+     if (!data.knowledgeBaseIds) data.knowledgeBaseIds = []
+     if (data.topK === undefined) data.topK = 3
+     if (data.minScore === undefined) data.minScore = 0.6
+  }
+  
   editForm.value = {
     name: node.name,
-    data: JSON.parse(JSON.stringify(node.data || {}))
+    data: data
   }
 }
 
@@ -239,6 +336,31 @@ const saveNodeConfig = () => {
   
   // Update node properties
   editingNode.value.name = editForm.value.name
+  
+  // HTTP Node Special Handling
+  if (editingNode.value.type === 'http') {
+      try {
+          // Attempt to parse headers if string
+          if (typeof editForm.value.data.headers === 'string' && editForm.value.data.headers.trim()) {
+             editForm.value.data.headers = JSON.parse(editForm.value.data.headers)
+          }
+      } catch (e) {
+          alert('Headers 格式错误，请输入正确的 JSON')
+          return
+      }
+      
+      // Attempt to parse body if it looks like JSON? 
+      // Actually backend handles String body and parses it if needed, or treats as Raw. 
+      // But for "variable substitution in Map", we might want to store as Object.
+      // For now, let's keep Body as String or whatever user calls. 
+      // If user types JSON string, we can verify it but easier to just save as string.
+      
+      // Ensure specific types
+      if (editForm.value.data.timeout) editForm.value.data.timeout = Number(editForm.value.data.timeout)
+      if (editForm.value.data.retryCount) editForm.value.data.retryCount = Number(editForm.value.data.retryCount)
+      if (editForm.value.data.validateSSL === undefined) editForm.value.data.validateSSL = true
+  }
+
   editingNode.value.data = JSON.parse(JSON.stringify(editForm.value.data))
   
   closeEditModal()
@@ -248,6 +370,8 @@ const nodeTypes = [
   { type: 'start', name: '起始', icon: '▶' },
   { type: 'end', name: '结束', icon: '■' },
   { type: 'agent', name: 'LLM调用', icon: '🤖' },
+  { type: 'knowledge_retrieval', name: '知识库检索', icon: '📚' },
+  { type: 'http', name: 'HTTP请求', icon: '🌐' },
   { type: 'condition', name: '条件', icon: '❓' },
   { type: 'action', name: '动作', icon: '⚡' },
 ]
@@ -488,11 +612,21 @@ const handleSave = async () => {
   }
 }
 
-onMounted(() => {
   if (isEdit.value) {
     loadWorkflow()
   }
+  // Load Knowledge Bases for selection
+  loadKnowledgeBases()
 })
+
+const knowledgeBases = ref<KnowledgeBase[]>([])
+const loadKnowledgeBases = async () => {
+    try {
+        knowledgeBases.value = await getKnowledgeBases()
+    } catch (e) {
+        console.error("加载知识库列表失败", e)
+    }
+}
 </script>
 
 <style scoped>
