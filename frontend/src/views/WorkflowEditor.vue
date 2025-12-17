@@ -108,6 +108,12 @@
         </div>
 
         <div class="modal-body">
+          <!-- Display Node ID for reference -->
+          <div class="node-id-info" style="margin-bottom: 15px; padding: 8px; background: #f5f7fa; border-radius: 4px; font-size: 12px; color: #666;">
+            <strong>节点 ID:</strong> <code style="user-select: all; background: #eee; padding: 2px 4px; border-radius: 3px;">{{ editingNode.id }}</code>
+            <span style="margin-left: 10px; color: #999;">(可在其他节点引用此 ID)</span>
+          </div>
+
           <!-- Common Fields -->
           <div class="form-group">
             <label>节点名称</label>
