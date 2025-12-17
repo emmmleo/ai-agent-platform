@@ -1,6 +1,7 @@
 package com.aiagent.workflow.service.executor;
 
 import com.aiagent.workflow.entity.Workflow;
+import com.aiagent.workflow.entity.WorkflowEdge;
 import com.aiagent.workflow.entity.WorkflowExecution;
 import com.aiagent.workflow.entity.WorkflowNode;
 import com.aiagent.workflow.service.WorkflowExecutionService;
@@ -95,7 +96,7 @@ public class WorkflowExecutor {
                 }
 
                 // 执行节点
-                Map<String, Object> nodeResult = executor.execute(node, context);
+                Map<String, Object> nodeResult = executor.execute(node, context).join();
 
                 // 记录节点执行结果
                 context.addNodeResult(nodeId, nodeResult);

@@ -296,6 +296,7 @@ const editForm = ref<any>({
 
 // 打开编辑弹窗
 const handleEditNode = (node: WorkflowNode) => {
+  console.log('Editing node:', node.id, node.type, JSON.stringify(node.data))
   editingNode.value = node
   // Deep copy to avoid direct mutation
   const data = JSON.parse(JSON.stringify(node.data || {}))
@@ -323,6 +324,7 @@ const handleEditNode = (node: WorkflowNode) => {
     name: node.name,
     data: data
   }
+  console.log('Initialized editForm:', JSON.stringify(editForm.value))
 }
 
 // 关闭编辑弹窗
@@ -333,6 +335,8 @@ const closeEditModal = () => {
 // 保存节点配置
 const saveNodeConfig = () => {
   if (!editingNode.value) return
+  
+  console.log('Saving node config from form:', JSON.stringify(editForm.value.data))
   
   // Update node properties
   editingNode.value.name = editForm.value.name
@@ -612,13 +616,6 @@ const handleSave = async () => {
   }
 }
 
-  if (isEdit.value) {
-    loadWorkflow()
-  }
-  // Load Knowledge Bases for selection
-  loadKnowledgeBases()
-})
-
 const knowledgeBases = ref<KnowledgeBase[]>([])
 const loadKnowledgeBases = async () => {
     try {
@@ -627,6 +624,14 @@ const loadKnowledgeBases = async () => {
         console.error("加载知识库列表失败", e)
     }
 }
+
+onMounted(() => {
+  if (isEdit.value) {
+    loadWorkflow()
+  }
+  // Load Knowledge Bases for selection
+  loadKnowledgeBases()
+})
 </script>
 
 <style scoped>

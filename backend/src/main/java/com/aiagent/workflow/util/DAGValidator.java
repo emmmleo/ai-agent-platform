@@ -7,11 +7,13 @@ import com.aiagent.workflow.entity.WorkflowNode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import org.springframework.stereotype.Component;
 import java.util.*;
 
 /**
  * DAG（有向无环图）验证器
  */
+@Component
 public class DAGValidator {
 
     private static final Logger log = LoggerFactory.getLogger(DAGValidator.class);
@@ -87,8 +89,8 @@ public class DAGValidator {
             throw new IllegalArgumentException("工作流必须至少包含一个结束节点（没有出边的节点）");
         }
 
-        // 4. 检查是否有环（使用拓扑排序）
-        if (hasCycle(nodes, edges)) {
+    // 4. 检查是否有环（使用拓扑排序）
+        if (hasCycleForDTO(nodes, edges)) {
             throw new IllegalArgumentException("工作流不能包含环（循环依赖）");
         }
 
@@ -102,9 +104,9 @@ public class DAGValidator {
     }
 
     /**
-     * 检查是否有环（使用DFS）
+     * 检查是否有环（使用DFS，针对WorkflowDTO）
      */
-    private static boolean hasCycle(List<CreateWorkflowRequest.Node> nodes,
+    private static boolean hasCycleForDTO(List<CreateWorkflowRequest.Node> nodes,
                                     List<CreateWorkflowRequest.Edge> edges) {
         // 构建邻接表
         Map<String, List<String>> graph = new HashMap<>();
@@ -140,9 +142,12 @@ public class DAGValidator {
         visited.add(nodeId);
         recursionStack.add(nodeId);
 
-        for (String neighbor : graph.get(nodeId)) {
-            if (hasCycleDFS(neighbor, graph, visited, recursionStack)) {
-                return true;
+        List<String> neighbors = graph.get(nodeId);
+        if (neighbors != null) {
+            for (String neighbor : neighbors) {
+                if (hasCycleDFS(neighbor, graph, visited, recursionStack)) {
+                    return true;
+                }
             }
         }
 
@@ -216,7 +221,7 @@ public class DAGValidator {
         List<WorkflowEdge> edges = workflow.getEdges() != null ? workflow.getEdges() : new ArrayList<>();
 
         // 检查是否有环
-        return !hasCycle(nodes, edges);
+        return !hasCycleForEntity(nodes, edges);
     }
 
     /**
@@ -280,9 +285,9 @@ public class DAGValidator {
     }
 
     /**
-     * 检查是否有环（使用DFS，针对WorkflowNode和WorkflowEdge）
+     * 检查是否有环（使用DFS，针对WorkflowEntity）
      */
-    private boolean hasCycle(List<WorkflowNode> nodes, List<WorkflowEdge> edges) {
+    private boolean hasCycleForEntity(List<WorkflowNode> nodes, List<WorkflowEdge> edges) {
         // 构建邻接表
         Map<String, List<String>> graph = new HashMap<>();
         for (WorkflowNode node : nodes) {
@@ -302,28 +307,6 @@ public class DAGValidator {
             }
         }
 
-        return false;
-    }
-
-    private boolean hasCycleDFS(String nodeId, Map<String, List<String>> graph, 
-                               Set<String> visited, Set<String> recursionStack) {
-        if (recursionStack.contains(nodeId)) {
-            return true; // 发现环
-        }
-        if (visited.contains(nodeId)) {
-            return false;
-        }
-
-        visited.add(nodeId);
-        recursionStack.add(nodeId);
-
-        for (String neighbor : graph.get(nodeId)) {
-            if (hasCycleDFS(neighbor, graph, visited, recursionStack)) {
-                return true;
-            }
-        }
-
-        recursionStack.remove(nodeId);
         return false;
     }
 }

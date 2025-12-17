@@ -28,6 +28,13 @@ public interface WorkflowExecutionService {
     /**
      * 根据ID获取执行记录详情
      */
+    /**
+     * 根据ID获取执行记录详情
+     */
     WorkflowExecutionResponse getExecutionById(Long id, Long userId);
+
+    // Inteal/Engine usage
+    Long createExecution(com.aiagent.workflow.entity.WorkflowExecution execution);
+    void updateExecution(com.aiagent.workflow.entity.WorkflowExecution execution);
 }
 

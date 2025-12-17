@@ -19,6 +19,8 @@ public interface UserMapper {
 
     int updateLastLoginAt(@Param("id") Long id);
 
+    int updateUser(User user);
+
     int deleteById(@Param("id") Long id);
 }
 

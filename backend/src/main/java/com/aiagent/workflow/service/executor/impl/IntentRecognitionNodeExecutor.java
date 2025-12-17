@@ -133,7 +133,8 @@ public class IntentRecognitionNodeExecutor implements NodeExecutor {
         // 去除多余空格、换行和标点符号
         return rawResult.trim()
                 .replaceAll("[\n\r]+", "")
-                .replaceAll("^["'`]+|["'`]+$", "")
+                .replaceAll("^['\"`]+", "")
+                .replaceAll("['\"`]+$", "")
                 .replaceAll("^[^a-zA-Z0-9_]+|[^a-zA-Z0-9_]+$", "");
     }
 

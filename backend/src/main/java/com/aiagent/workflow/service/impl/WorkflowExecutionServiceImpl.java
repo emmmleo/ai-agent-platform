@@ -23,6 +23,7 @@ import java.util.regex.Pattern;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.stream.Collectors;
+import org.springframework.util.StringUtils;
 
 @Service
 public class WorkflowExecutionServiceImpl implements WorkflowExecutionService {
@@ -112,6 +113,19 @@ public class WorkflowExecutionServiceImpl implements WorkflowExecutionService {
             }
         }
         return toResponse(execution);
+    }
+
+    @Override
+    @Transactional
+    public Long createExecution(WorkflowExecution execution) {
+        executionMapper.insert(execution);
+        return execution.getId();
+    }
+
+    @Override
+    @Transactional
+    public void updateExecution(WorkflowExecution execution) {
+        executionMapper.update(execution);
     }
 
     /**

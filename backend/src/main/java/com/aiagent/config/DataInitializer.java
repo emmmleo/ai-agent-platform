@@ -42,13 +42,23 @@ public class DataInitializer implements CommandLineRunner {
     }
 
     private void createUserIfAbsent(String username, String rawPassword, String role) {
-        if (userMapper.findByUsername(username) != null) {
+        User existingUser = userMapper.findByUsername(username);
+        String encodedPassword = passwordEncoder.encode(rawPassword);
+        
+        if (existingUser != null) {
+            // Force reset password for dev convenience (optional, but requested by user issue)
+            if ("admin".equals(username) || "user".equals(username)) {
+                existingUser.setPasswordHash(encodedPassword);
+                userMapper.updateUser(existingUser); // Assuming updateUser exists
+                log.info("Reset password for default user: {}", username);
+            }
             return;
         }
+
         LocalDateTime now = LocalDateTime.now();
         User user = new User();
         user.setUsername(username);
-        user.setPasswordHash(passwordEncoder.encode(rawPassword));
+        user.setPasswordHash(encodedPassword);
         user.setRole(role);
         user.setCreatedAt(now);
         user.setUpdatedAt(now);

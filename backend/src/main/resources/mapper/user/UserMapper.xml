@@ -43,6 +43,14 @@
         WHERE id = #{id}
     </update>
 
+    <update id="updateUser" parameterType="com.aiagent.user.entity.User">
+        UPDATE users
+        SET password_hash = #{passwordHash},
+            role = #{role},
+            updated_at = NOW()
+        WHERE id = #{id}
+    </update>
+
     <delete id="deleteById" parameterType="long">
         DELETE FROM users WHERE id = #{id}
     </delete>
