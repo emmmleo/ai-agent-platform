@@ -84,13 +84,93 @@
             :style="{ left: node.position?.x + 'px', top: node.position?.y + 'px' }"
             @mousedown="handleNodeMouseDown($event, node)"
             @click.stop="handleNodeClick(node)"
+            @dblclick.stop="handleEditNode(node)"
           >
             <div class="node-header">
               <span class="node-type-badge">{{ getNodeTypeName(node.type) }}</span>
-              <button @click.stop="handleDeleteNode(node)" class="node-delete-btn">×</button>
+              <div class="node-actions">
+                <button @click.stop="handleEditNode(node)" class="node-edit-btn" title="配置">⚙️</button>
+                <button @click.stop="handleDeleteNode(node)" class="node-delete-btn" title="删除">×</button>
+              </div>
             </div>
             <div class="node-body">{{ node.name }}</div>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Node Configuration Modal -->
+    <div v-if="editingNode" class="modal-overlay" @click="closeEditModal">
+      <div class="modal-content" @click.stop>
+        <div class="modal-header">
+          <h3>配置节点: {{ editingNode.name }}</h3>
+          <button class="close-btn" @click="closeEditModal">×</button>
+        </div>
+
+        <div class="modal-body">
+          <!-- Common Fields -->
+          <div class="form-group">
+            <label>节点名称</label>
+            <input v-model="editForm.name" type="text" placeholder="请输入节点名称" />
+          </div>
+
+          <!-- Agent/LLM Node Fields -->
+          <div v-if="editingNode.type === 'agent' || editingNode.type === 'llm'">
+            <div class="form-group">
+              <label>模型提供商 (API Base)</label>
+              <input v-model="editForm.data.api_base" type="text" placeholder="例如: https://api.deepseek.com (留空使用默认)" />
+              <div class="help-text">支持DeepSeek, Moonshot (https://api.moonshot.cn/v1) 等OpenAI兼容接口</div>
+            </div>
+            <div class="form-group">
+              <label>API Key</label>
+              <input v-model="editForm.data.api_key" type="password" placeholder="sk-..." />
+              <div class="help-text">留空则使用系统默认配置</div>
+            </div>
+            <div class="form-group">
+              <label>模型名称 (Model)</label>
+               <input v-model="editForm.data.model" type="text" placeholder="例如: deepseek-chat, moonshot-v1-8k" />
+            </div>
+            <div class="form-group">
+              <label>系统提示词 (System Prompt)</label>
+              <textarea v-model="editForm.data.system_prompt" rows="3" placeholder="你是一个有用的助手..."></textarea>
+            </div>
+            <div class="form-group">
+              <label>用户提示词 (User Prompt)</label>
+              <textarea v-model="editForm.data.user_prompt" rows="5" placeholder="请输入问题... 支持变量 {input.question}"></textarea>
+              <div class="help-text">支持变量: {input.param}, {nodeId.output}</div>
+            </div>
+            <div class="form-group">
+              <label>温度 (Temperature): {{ editForm.data.temperature || 0.7 }}</label>
+              <input type="range" v-model="editForm.data.temperature" min="0" max="2" step="0.1" />
+            </div>
+          </div>
+
+          <!-- Condition Node Fields -->
+          <div v-if="editingNode.type === 'condition'">
+             <!-- Placeholder for condition config -->
+             <div class="form-group">
+                <label>条件表达式</label>
+                <input v-model="editForm.data.condition" type="text" placeholder="e.g. variable == 'value'" />
+             </div>
+          </div>
+
+          <!-- Action Node Fields -->
+          <div v-if="editingNode.type === 'action'">
+             <div class="form-group">
+                <label>动作类型</label>
+                <select v-model="editForm.data.actionType">
+                    <option value="http">HTTP请求</option>
+                    <option value="email">发送邮件</option>
+                </select>
+             </div>
+             <!-- ... more fields ... -->
+          </div>
+
+        </div>
+
+        <div class="modal-footer">
+          <button class="cancel-btn" @click="closeEditModal">取消</button>
+          <button class="confirm-btn" @click="saveNodeConfig">保存配置</button>
         </div>
       </div>
     </div>
@@ -131,10 +211,43 @@ const selectedNode = ref<WorkflowNode | null>(null)
 const sourceNode = ref<WorkflowNode | null>(null)
 const nodeOffset = ref({ x: 0, y: 0 })
 
+// Node Editing State
+const editingNode = ref<WorkflowNode | null>(null)
+const editForm = ref<any>({
+  name: '',
+  data: {}
+})
+
+// 打开编辑弹窗
+const handleEditNode = (node: WorkflowNode) => {
+  editingNode.value = node
+  // Deep copy to avoid direct mutation
+  editForm.value = {
+    name: node.name,
+    data: JSON.parse(JSON.stringify(node.data || {}))
+  }
+}
+
+// 关闭编辑弹窗
+const closeEditModal = () => {
+  editingNode.value = null
+}
+
+// 保存节点配置
+const saveNodeConfig = () => {
+  if (!editingNode.value) return
+  
+  // Update node properties
+  editingNode.value.name = editForm.value.name
+  editingNode.value.data = JSON.parse(JSON.stringify(editForm.value.data))
+  
+  closeEditModal()
+}
+
 const nodeTypes = [
   { type: 'start', name: '起始', icon: '▶' },
   { type: 'end', name: '结束', icon: '■' },
-  { type: 'agent', name: '智能体', icon: '🤖' },
+  { type: 'agent', name: 'LLM调用', icon: '🤖' },
   { type: 'condition', name: '条件', icon: '❓' },
   { type: 'action', name: '动作', icon: '⚡' },
 ]
@@ -607,9 +720,36 @@ h1 {
   height: 20px;
 }
 
+.node-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.node-edit-btn,
+.node-delete-btn {
+  background: transparent;
+  border: none;
+  color: white;
+  cursor: pointer;
+  font-size: 16px;
+  padding: 0 4px;
+}
+
+.node-edit-btn:hover,
+.node-delete-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+}
+
 .node-delete-btn:hover {
   background: rgba(255, 255, 255, 0.2);
   border-radius: 50%;
+}
+/* Ensure precedence */
+.node-actions .node-edit-btn,
+.node-actions .node-delete-btn {
+  display: inline-block;
+  pointer-events: auto;
 }
 
 .node-body {
@@ -621,24 +761,130 @@ h1 {
 
 /* --- 新增的连线样式 --- */
 
-/* 节点被选中（作为起点）时的样子：橙色边框 + 发光 */
+/* Node Config Modal */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+}
+
+.modal-content {
+  background: white;
+  padding: 20px;
+  border-radius: 8px;
+  width: 500px;
+  max-width: 90%;
+  max-height: 80vh;
+  overflow-y: auto;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #eee;
+}
+
+.modal-header h3 {
+  margin: 0;
+}
+
+.close-btn {
+  background: none;
+  border: none;
+  font-size: 20px;
+  cursor: pointer;
+}
+
+.form-group {
+  margin-bottom: 15px;
+}
+
+.form-group label {
+  display: block;
+  margin-bottom: 5px;
+  font-weight: 500;
+  color: #2c3e50;
+}
+
+.form-group input,
+.form-group select,
+.form-group textarea {
+  width: 100%;
+  padding: 8px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 14px;
+}
+
+.form-group input:focus,
+.form-group select:focus,
+.form-group textarea:focus {
+  border-color: #42b983;
+  outline: none;
+}
+
+.help-text {
+  font-size: 12px;
+  color: #666;
+  margin-top: 4px;
+}
+
+.modal-footer {
+  margin-top: 20px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.cancel-btn,
+.confirm-btn {
+  padding: 8px 16px;
+  border-radius: 4px;
+  border: none;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.cancel-btn {
+  background: #eee;
+  color: #666;
+}
+
+.confirm-btn {
+  background: #42b983;
+  color: white;
+}
+
+.confirm-btn:hover {
+  background: #35a372;
+}
+
 .workflow-node.is-selected {
   border-color: #ff9800 !important;
   box-shadow: 0 0 10px rgba(255, 152, 0, 0.6);
-  z-index: 100; /* 让它浮在最上面 */
+  z-index: 100;
 }
 
-/* 连线的样式 */
 .workflow-edge {
-  cursor: pointer;          /* 鼠标放上去变小手 */
-  pointer-events: auto;     /* 关键！让线能接收点击事件，不再是“幽灵” */
-  transition: all 0.3s;     /* 动画效果 */
+  cursor: pointer;
+  pointer-events: auto;
+  transition: all 0.3s;
 }
 
-/* 鼠标悬停在线上时：变色、变粗 */
 .workflow-edge:hover {
-  stroke: #ff9800;          /* 变橙色 */
-  stroke-width: 6;          /* 变粗，让你更容易点中 */
+  stroke: #ff9800;
+  stroke-width: 6;
 }
 
 </style>

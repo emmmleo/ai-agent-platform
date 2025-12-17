@@ -15,6 +15,11 @@ import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.aiagent.agent.client.DeepSeekClient;
+import org.springframework.beans.factory.ObjectProvider;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -27,13 +32,16 @@ public class WorkflowExecutionServiceImpl implements WorkflowExecutionService {
     private final WorkflowExecutionMapper executionMapper;
     private final WorkflowMapper workflowMapper;
     private final ObjectMapper objectMapper;
+    private final ObjectProvider<DeepSeekClient> deepSeekClientProvider;
 
     public WorkflowExecutionServiceImpl(WorkflowExecutionMapper executionMapper,
                                         WorkflowMapper workflowMapper,
-                                        ObjectMapper objectMapper) {
+                                        ObjectMapper objectMapper,
+                                        ObjectProvider<DeepSeekClient> deepSeekClientProvider) {
         this.executionMapper = executionMapper;
         this.workflowMapper = workflowMapper;
         this.objectMapper = objectMapper;
+        this.deepSeekClientProvider = deepSeekClientProvider;
     }
 
     @Override
@@ -246,9 +254,61 @@ public class WorkflowExecutionServiceImpl implements WorkflowExecutionService {
                     log.info(">>> 结束节点执行完成");
                     break;
                 case "agent":
-                    // TODO: 这里目前是模拟数据，未来要对接真实的 AI 模型
-                    result.put("output", "智能体执行结果（模拟）");
-                    log.info(">>> 智能体节点执行完成");
+                case "llm":
+                    // Get LLM client instance (Prototype bean)
+                    DeepSeekClient llmClient = deepSeekClientProvider.getObject();
+                    
+                    // Prepare model configuration
+                    Map<String, Object> modelConfig = new HashMap<>();
+                    if (node.getData() != null) {
+                        modelConfig.putAll(node.getData());
+                    }
+                    
+                    // Replace variables in config (e.g. prompt)
+                    String systemPrompt = (String) modelConfig.get("system_prompt");
+                    if (systemPrompt != null) {
+                        modelConfig.put("system_prompt", replaceVariables(systemPrompt, context));
+                    }
+                    
+                    String userPrompt = (String) modelConfig.get("user_prompt");
+                    if (userPrompt != null) {
+                         // It might be stored as 'prompt' or 'user_prompt'
+                        userPrompt = replaceVariables(userPrompt, context);
+                    } else if (modelConfig.get("prompt") instanceof String) {
+                        userPrompt = replaceVariables((String) modelConfig.get("prompt"), context);
+                    }
+                    
+                    if (StringUtils.isEmpty(userPrompt)) {
+                        throw new IllegalArgumentException("User prompt is required for LLM node");
+                    }
+                    
+                    // Call LLM
+                    // If system prompt exists, append it as first message
+                    if (StringUtils.hasText(systemPrompt)) {
+                        llmClient.appendMessage("system", systemPrompt);
+                    }
+                    
+                    // Handle output
+                    DeepSeekClient.Message responseMessage = llmClient.chat(
+                        null, // context (optional, maybe from input?)
+                        userPrompt,
+                        null, // tools (todo: support tools from config)
+                        modelConfig
+                    );
+                    
+                    if (responseMessage != null) {
+                        result.put("output", responseMessage.getContent());
+                        result.put("message", responseMessage);
+                        // Store structured result for next nodes
+                        Map<String, Object> outputMap = new HashMap<>();
+                        outputMap.put("response", responseMessage.getContent());
+                        outputMap.put("role", responseMessage.getRole());
+                        result.put("data", outputMap); 
+                    } else {
+                        result.put("output", "");
+                    }
+                    
+                    log.info(">>> LLM node executed successfully");
                     break;
                 case "condition":
                     result.put("output", "条件判断结果（模拟）");
@@ -268,6 +328,98 @@ public class WorkflowExecutionServiceImpl implements WorkflowExecutionService {
         }
 
         return result;
+    }
+
+    /**
+     * Variable replacement, supporting the following formats:
+     * - {node_id} - Reference node output
+     * - {node_id.field} - Reference specific field of node output
+     * - {input.param} - Reference workflow input parameter
+     */
+    private String replaceVariables(String text, Map<String, Object> context) {
+        if (text == null) {
+            return null;
+        }
+
+        // Match variable: {node_id} or {node_id.field} or {input.param}
+        Pattern pattern = Pattern.compile("\\{([^}]+)\\}");
+        Matcher matcher = pattern.matcher(text);
+
+        StringBuffer sb = new StringBuffer();
+        while (matcher.find()) {
+            String varPath = matcher.group(1);
+            String replacement = matcher.group(0); // Default to original text if not found
+
+            try {
+                // Handle {input.param} format
+                if (varPath.startsWith("input.")) {
+                    String paramName = varPath.substring(6); // Remove "input."
+                    Object inputObj = context.get("input"); // Assuming input is stored as "input" key or merged?
+                    // Based on executeWorkflowDefinition, context starts with inputParams.
+                    // But usually input params are directly in context or in a specific key?
+                    // In executeWorkflowDefinition: Map<String, Object> context = new HashMap<>(inputParams != null ? inputParams : new HashMap<>());
+                    // So input params are top-level keys in context.
+                    // Wait, CodeHubot uses {input.param}, assuming there is an "input" dict.
+                    // But here context IS the accumulated variables.
+                    // Let's check if "input" node exists or if we should look up directly.
+                    // If the user uses {input.foo}, they probably expect 'foo' from input.
+                    // Since context was initialized with inputParams, we can check context.get(paramName).
+                    
+                    // However, to be strict compatible with CodeHubot's {input.param}, we might need to support both.
+                    // If varPath is "input.param", we look for "param" in context.
+                    Object value = context.get(paramName);
+                    if (value != null) {
+                        replacement = String.valueOf(value);
+                    }
+                } else {
+                    // Handle {node_id} or {node_id.field} format
+                    String[] parts = varPath.split("\\.", 2);
+                    String nodeId = parts[0];
+                    
+                    if (context.containsKey(nodeId)) {
+                        Object nodeOutput = context.get(nodeId);
+                        
+                        // If {node_id.field} format
+                        if (parts.length > 1) {
+                            String fieldPath = parts[1];
+                            Map<String, Object> currentMap = (nodeOutput instanceof Map) ? (Map<String, Object>) nodeOutput : null;
+                            
+                            // Support nested field access, e.g., node_id.data.result
+                            Object value = currentMap;
+                            for (String field : fieldPath.split("\\.")) {
+                                if (value instanceof Map) {
+                                    value = ((Map<?, ?>) value).get(field);
+                                } else {
+                                    value = null; // Cannot access field on non-map
+                                    break;
+                                }
+                            }
+                            
+                            if (value != null) {
+                                replacement = String.valueOf(value);
+                            }
+                        } else {
+                            // {node_id} format
+                            if (nodeOutput instanceof String) {
+                                replacement = (String) nodeOutput;
+                            } else if (nodeOutput != null) {
+                                try {
+                                    replacement = objectMapper.writeValueAsString(nodeOutput);
+                                } catch (Exception e) {
+                                    replacement = nodeOutput.toString();
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("Variable replacement failed for {}: {}", varPath, e.getMessage());
+            }
+            
+            matcher.appendReplacement(sb, Matcher.quoteReplacement(replacement));
+        }
+        matcher.appendTail(sb);
+        return sb.toString();
     }
 
     private WorkflowExecutionResponse toResponse(WorkflowExecution execution) {
@@ -299,4 +451,5 @@ public class WorkflowExecutionServiceImpl implements WorkflowExecutionService {
         return response;
     }
 }
+
 

@@ -1,6 +1,9 @@
 package com.aiagent.workflow.util;
 
 import com.aiagent.workflow.dto.CreateWorkflowRequest;
+import com.aiagent.workflow.entity.Workflow;
+import com.aiagent.workflow.entity.WorkflowEdge;
+import com.aiagent.workflow.entity.WorkflowNode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -199,5 +202,128 @@ public class DAGValidator {
         }
 
         return reachable.size() == nodes.size();
+    }
+
+    /**
+     * 验证工作流是否为DAG
+     */
+    public boolean isDAG(Workflow workflow) {
+        if (workflow == null || workflow.getNodes() == null || workflow.getNodes().isEmpty()) {
+            return true;
+        }
+
+        List<WorkflowNode> nodes = workflow.getNodes();
+        List<WorkflowEdge> edges = workflow.getEdges() != null ? workflow.getEdges() : new ArrayList<>();
+
+        // 检查是否有环
+        return !hasCycle(nodes, edges);
+    }
+
+    /**
+     * 对工作流节点进行拓扑排序
+     */
+    public List<String> topologicalSort(Workflow workflow) {
+        List<String> result = new ArrayList<>();
+
+        if (workflow == null || workflow.getNodes() == null || workflow.getNodes().isEmpty()) {
+            return result;
+        }
+
+        List<WorkflowNode> nodes = workflow.getNodes();
+        List<WorkflowEdge> edges = workflow.getEdges() != null ? workflow.getEdges() : new ArrayList<>();
+
+        // 构建邻接表
+        Map<String, List<String>> graph = new HashMap<>();
+        Map<String, Integer> inDegree = new HashMap<>();
+
+        // 初始化邻接表和入度表
+        for (WorkflowNode node : nodes) {
+            graph.put(node.getId(), new ArrayList<>());
+            inDegree.put(node.getId(), 0);
+        }
+
+        // 计算入度
+        for (WorkflowEdge edge : edges) {
+            String source = edge.getSource();
+            String target = edge.getTarget();
+            graph.get(source).add(target);
+            inDegree.put(target, inDegree.get(target) + 1);
+        }
+
+        // 使用队列进行拓扑排序
+        Queue<String> queue = new LinkedList<>();
+        for (Map.Entry<String, Integer> entry : inDegree.entrySet()) {
+            if (entry.getValue() == 0) {
+                queue.offer(entry.getKey());
+            }
+        }
+
+        while (!queue.isEmpty()) {
+            String current = queue.poll();
+            result.add(current);
+
+            List<String> neighbors = graph.get(current);
+            for (String neighbor : neighbors) {
+                inDegree.put(neighbor, inDegree.get(neighbor) - 1);
+                if (inDegree.get(neighbor) == 0) {
+                    queue.offer(neighbor);
+                }
+            }
+        }
+
+        // 检查是否所有节点都被访问到（如果没有，说明有环）
+        if (result.size() != nodes.size()) {
+            return new ArrayList<>();
+        }
+
+        return result;
+    }
+
+    /**
+     * 检查是否有环（使用DFS，针对WorkflowNode和WorkflowEdge）
+     */
+    private boolean hasCycle(List<WorkflowNode> nodes, List<WorkflowEdge> edges) {
+        // 构建邻接表
+        Map<String, List<String>> graph = new HashMap<>();
+        for (WorkflowNode node : nodes) {
+            graph.put(node.getId(), new ArrayList<>());
+        }
+        for (WorkflowEdge edge : edges) {
+            graph.get(edge.getSource()).add(edge.getTarget());
+        }
+
+        // 使用DFS检测环
+        Set<String> visited = new HashSet<>();
+        Set<String> recursionStack = new HashSet<>();
+
+        for (WorkflowNode node : nodes) {
+            if (hasCycleDFS(node.getId(), graph, visited, recursionStack)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private boolean hasCycleDFS(String nodeId, Map<String, List<String>> graph, 
+                               Set<String> visited, Set<String> recursionStack) {
+        if (recursionStack.contains(nodeId)) {
+            return true; // 发现环
+        }
+        if (visited.contains(nodeId)) {
+            return false;
+        }
+
+        visited.add(nodeId);
+        recursionStack.add(nodeId);
+
+        for (String neighbor : graph.get(nodeId)) {
+            if (hasCycleDFS(neighbor, graph, visited, recursionStack)) {
+                return true;
+            }
+        }
+
+        recursionStack.remove(nodeId);
+        return false;
     }
 }

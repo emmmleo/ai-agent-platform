@@ -79,7 +79,8 @@ public class CreateWorkflowRequest {
         private String id;
         private String type; // start/end/agent/condition/action
         private String name;
-        private Map<String, Object> config;
+        @JsonProperty("data")
+        private Map<String, Object> data;
         private Position position;
 
         public String getId() {
@@ -106,12 +107,12 @@ public class CreateWorkflowRequest {
             this.name = name;
         }
 
-        public Map<String, Object> getConfig() {
-            return config;
+        public Map<String, Object> getData() {
+            return data;
         }
 
-        public void setConfig(Map<String, Object> config) {
-            this.config = config;
+        public void setData(Map<String, Object> data) {
+            this.data = data;
         }
 
         public Position getPosition() {

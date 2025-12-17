@@ -70,7 +70,7 @@ public class DeepSeekClient {
         appendMessage("user", userContent.toString());
 
         ChatCompletionRequest payload = buildRequest(tools, modelConfig);
-        ChatCompletionResponse response = sendChat(payload);
+        ChatCompletionResponse response = sendChat(payload, modelConfig);
         Message message = extractFirstMessage(response);
         if (message != null) {
             appendMessage(message);
@@ -80,7 +80,7 @@ public class DeepSeekClient {
 
     public Message continueChat(List<Tool> tools, Map<String, Object> modelConfig) {
         ChatCompletionRequest payload = buildRequest(tools, modelConfig);
-        ChatCompletionResponse response = sendChat(payload);
+        ChatCompletionResponse response = sendChat(payload, modelConfig);
         Message message = extractFirstMessage(response);
         if (message != null) {
             appendMessage(message);
@@ -88,15 +88,15 @@ public class DeepSeekClient {
         return message;
     }
 
-    private ChatCompletionResponse sendChat(ChatCompletionRequest payload) {
-        ensureReady();
+    private ChatCompletionResponse sendChat(ChatCompletionRequest payload, Map<String, Object> modelConfig) {
+        ensureReady(modelConfig);
 
-        HttpHeaders headers = buildHeaders();
+        HttpHeaders headers = buildHeaders(modelConfig);
         HttpEntity<ChatCompletionRequest> entity = new HttpEntity<>(payload, headers);
 
         try {
             ResponseEntity<ChatCompletionResponse> response = restTemplate.exchange(
-                    buildChatUri(),
+                    buildChatUri(modelConfig),
                     HttpMethod.POST,
                     entity,
                     ChatCompletionResponse.class);
@@ -142,15 +142,24 @@ public class DeepSeekClient {
         return request;
     }
 
-    private HttpHeaders buildHeaders() {
+    private HttpHeaders buildHeaders(Map<String, Object> modelConfig) {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
-        headers.setBearerAuth(properties.getApiKey());
+        
+        String apiKey = resolveString(modelConfig, "api_key", "apiKey");
+        if (!StringUtils.hasText(apiKey)) {
+            apiKey = properties.getApiKey();
+        }
+        headers.setBearerAuth(apiKey);
         return headers;
     }
 
-    private URI buildChatUri() {
-        String base = properties.getBaseUrl();
+    private URI buildChatUri(Map<String, Object> modelConfig) {
+        String base = resolveString(modelConfig, "api_base", "apiBase", "baseUrl");
+        if (!StringUtils.hasText(base)) {
+            base = properties.getBaseUrl();
+        }
+        
         if (!StringUtils.hasText(base)) {
             base = "https://api.deepseek.com";
         }
@@ -160,11 +169,20 @@ public class DeepSeekClient {
         return URI.create(base + CHAT_COMPLETIONS_PATH);
     }
 
-    private void ensureReady() {
-        if (!properties.isEnabled()) {
+    private void ensureReady(Map<String, Object> modelConfig) {
+        // If properties disabled, check if modelConfig overrides it (optional, but let's stick to simple logic first)
+        // If we are strictly using properties to enable/disable, keep it. 
+        // But if we want to allow dynamic enable, we might relax this.
+        // For now, let's assume if modelConfig has api_key, we interpret it as enabled for this request.
+        
+        String apiKey = resolveString(modelConfig, "api_key", "apiKey");
+        boolean hasDynamicKey = StringUtils.hasText(apiKey);
+        
+        if (!hasDynamicKey && !properties.isEnabled()) {
             throw new IllegalStateException("LLM功能已禁用");
         }
-        if (!StringUtils.hasText(properties.getApiKey())) {
+        
+        if (!hasDynamicKey && !StringUtils.hasText(properties.getApiKey())) {
             throw new IllegalStateException("未配置 llm.api-key，请设置环境变量 DEEPSEEK_API_KEY");
         }
     }
