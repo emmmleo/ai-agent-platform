@@ -151,6 +151,9 @@ public class WorkflowExecutionContext {
         while (matcher.find()) {
             String varPath = matcher.group(1);
             String replacement = matcher.group(0); // 默认保留原文本
+            
+            // LOGGING DEBUG
+            System.out.println("DEBUG: Attempting to replace variable: " + varPath);
 
             try {
                 // 处理 {input.param}
@@ -176,6 +179,17 @@ public class WorkflowExecutionContext {
                             
                             // 从 executionResults 获取节点结果
                             Map<String, Object> nodeResult = (Map<String, Object>) executionResults.get(nodeId);
+                            
+                            // LOGGING DEBUG
+                            if (nodeResult == null) {
+                                System.out.println("DEBUG: Node Result NOT found for ID: " + nodeId);
+                                System.out.println("DEBUG: Available Node IDs: " + executionResults.keySet());
+                            } else {
+                                System.out.println("DEBUG: Node Result found for ID: " + nodeId);
+                                System.out.println("DEBUG: Keys in Node Result: " + nodeResult.keySet());
+                                System.out.println("DEBUG: Looking for field: " + fieldPath);
+                            }
+
                             if (nodeResult != null) {
                                 // 简单的可扩展字段访问
                                 Object fieldVal = nodeResult.get(fieldPath);
@@ -186,6 +200,9 @@ public class WorkflowExecutionContext {
                                 
                                 if (fieldVal != null) {
                                     replacement = String.valueOf(fieldVal);
+                                    System.out.println("DEBUG: Found replacement value: " + replacement);
+                                } else {
+                                     System.out.println("DEBUG: Field value is NULL");
                                 }
                             }
                         }
@@ -193,6 +210,7 @@ public class WorkflowExecutionContext {
                 }
             } catch (Exception e) {
                 // ignore
+                e.printStackTrace();
             }
             
             matcher.appendReplacement(sb, java.util.regex.Matcher.quoteReplacement(replacement));

@@ -84,6 +84,8 @@ public class LLMNodeExecutor implements NodeExecutor {
                 Map<String, Object> result = new HashMap<>();
                 if (responseMessage != null) {
                     result.put("output", responseMessage.getContent());
+                    // Alias 'content' for compatibility with user expectations and templates
+                    result.put("content", responseMessage.getContent()); 
                     result.put("message", responseMessage);
                     // 结构化数据供后续节点引用
                     Map<String, Object> dataMap = new HashMap<>();
@@ -92,6 +94,7 @@ public class LLMNodeExecutor implements NodeExecutor {
                     result.put("data", dataMap);
                 } else {
                     result.put("output", "");
+                    result.put("content", "");
                 }
                 
                 logger.info("LLM节点执行完成: {}", node.getName());

@@ -261,6 +261,11 @@ public class WorkflowExecutionServiceImpl implements WorkflowExecutionService {
             switch (nodeType) {
                 case "start":
                     result.put("output", "工作流开始");
+                    // Forward all input parameters (from context) to Start Node output
+                    // This allows accessing inputs via {node_startId.param}
+                    if (context != null) {
+                        result.putAll(context);
+                    }
                     log.info(">>> 起始节点执行完成");
                     break;
                 case "end":
@@ -312,6 +317,7 @@ public class WorkflowExecutionServiceImpl implements WorkflowExecutionService {
                     
                     if (responseMessage != null) {
                         result.put("output", responseMessage.getContent());
+                        result.put("content", responseMessage.getContent()); // Add 'content' alias
                         result.put("message", responseMessage);
                         // Store structured result for next nodes
                         Map<String, Object> outputMap = new HashMap<>();
@@ -320,6 +326,7 @@ public class WorkflowExecutionServiceImpl implements WorkflowExecutionService {
                         result.put("data", outputMap); 
                     } else {
                         result.put("output", "");
+                        result.put("content", "");
                     }
                     
                     log.info(">>> LLM node executed successfully");
