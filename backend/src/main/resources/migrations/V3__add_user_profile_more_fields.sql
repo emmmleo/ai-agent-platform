@@ -1,0 +1,4 @@
+ALTER TABLE users
+    ADD COLUMN avatar_url VARCHAR(512) NULL,
+    ADD COLUMN gender VARCHAR(16) NULL,
+    ADD COLUMN birthday DATE NULL;

@@ -12,29 +12,36 @@
         <result property="role" column="role"/>
         <result property="createdAt" column="created_at"/>
         <result property="updatedAt" column="updated_at"/>
+        <result property="school" column="school"/>
+        <result property="phone" column="phone"/>
+        <result property="email" column="email"/>
+        <result property="bio" column="bio"/>
+        <result property="avatarUrl" column="avatar_url"/>
+        <result property="gender" column="gender"/>
+        <result property="birthday" column="birthday"/>
     </resultMap>
 
     <select id="findByUsername" parameterType="string" resultMap="UserResultMap">
-        SELECT id, username, password_hash, role, created_at, updated_at
+        SELECT id, username, password_hash, role, created_at, updated_at, school, phone, email, bio, avatar_url, gender, birthday
         FROM users
         WHERE username = #{username}
     </select>
 
     <select id="findById" parameterType="long" resultMap="UserResultMap">
-        SELECT id, username, password_hash, role, created_at, updated_at
+        SELECT id, username, password_hash, role, created_at, updated_at, school, phone, email, bio, avatar_url, gender, birthday
         FROM users
         WHERE id = #{id}
     </select>
 
     <select id="findAll" resultMap="UserResultMap">
-        SELECT id, username, password_hash, role, created_at, updated_at
+        SELECT id, username, password_hash, role, created_at, updated_at, school, phone, email, bio, avatar_url, gender, birthday
         FROM users
         ORDER BY created_at DESC
     </select>
 
     <insert id="insertUser" parameterType="com.aiagent.user.entity.User" useGeneratedKeys="true" keyProperty="id">
-        INSERT INTO users (username, password_hash, role, created_at, updated_at)
-        VALUES (#{username}, #{passwordHash}, #{role}, #{createdAt}, #{updatedAt})
+        INSERT INTO users (username, password_hash, role, created_at, updated_at, school, phone, email, bio, avatar_url, gender, birthday)
+        VALUES (#{username}, #{passwordHash}, #{role}, #{createdAt}, #{updatedAt}, #{school}, #{phone}, #{email}, #{bio}, #{avatarUrl}, #{gender}, #{birthday})
     </insert>
 
     <update id="updateLastLoginAt" parameterType="long">
@@ -51,9 +58,23 @@
         WHERE id = #{id}
     </update>
 
+    <update id="updateProfile">
+        UPDATE users
+        <set>
+            <if test="school != null">school = #{school},</if>
+            <if test="phone != null">phone = #{phone},</if>
+            <if test="email != null">email = #{email},</if>
+            <if test="bio != null">bio = #{bio},</if>
+            <if test="avatarUrl != null">avatar_url = #{avatarUrl},</if>
+            <if test="gender != null">gender = #{gender},</if>
+            <if test="birthday != null">birthday = #{birthday},</if>
+            updated_at = NOW()
+        </set>
+        WHERE id = #{id}
+    </update>
+
     <delete id="deleteById" parameterType="long">
         DELETE FROM users WHERE id = #{id}
     </delete>
 
 </mapper>
-

@@ -10,10 +10,17 @@ export interface User {
   role: string
   createdAt: string
   updatedAt: string
+  school?: string
+  phone?: string
+  email?: string
+  bio?: string
+  avatarUrl?: string
+  gender?: string
+  birthday?: string
 }
 
 export const useUserStore = defineStore('user', {
-  state: () => ({
+  state: (): any => ({
     user: null as User | null,
     token: getToken(),
     isAuthenticated: !!getToken(),
@@ -29,8 +36,9 @@ export const useUserStore = defineStore('user', {
       try {
         const response = await apiLogin({ username, password })
         setToken(response.token)
-        this.token = response.token
-        this.isAuthenticated = true
+        const state = this as any
+        state.token = response.token
+        state.isAuthenticated = true
         // 获取用户信息
         await this.fetchUserProfile()
         return response
@@ -43,7 +51,8 @@ export const useUserStore = defineStore('user', {
     async register(username: string, password: string) {
       try {
         const user = await apiRegister({ username, password })
-        this.user = user
+        const state = this as any
+        state.user = user
         // 注册后自动登录
         await this.login(username, password)
         return user
@@ -56,7 +65,8 @@ export const useUserStore = defineStore('user', {
     async fetchUserProfile() {
       try {
         const user = await getUserProfile()
-        this.user = user
+        const state = this as any
+        state.user = user
         return user
       } catch (error: any) {
         this.logout()
@@ -66,21 +76,24 @@ export const useUserStore = defineStore('user', {
 
     // 设置用户信息
     setUser(user: User) {
-      this.user = user
-      this.isAuthenticated = true
+      const state = this as any
+      state.user = user
+      state.isAuthenticated = true
     },
 
     // 登出
     logout() {
-      this.user = null
-      this.token = null
-      this.isAuthenticated = false
+      const state = this as any
+      state.user = null
+      state.token = null
+      state.isAuthenticated = false
       removeToken()
     },
 
     // 初始化（从 token 恢复登录状态）
     async init() {
-      if (this.token) {
+      const state = this as any
+      if (state.token) {
         try {
           await this.fetchUserProfile()
         } catch (error) {
@@ -90,4 +103,3 @@ export const useUserStore = defineStore('user', {
     },
   },
 })
-

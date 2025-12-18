@@ -70,7 +70,7 @@ docker exec -i codehubix-mysql mysql -u demo_user -pdemo_pass_123 demo_db < back
 
 ### 默认菜单
 - 仪表盘 (/)
-- 个人信息 (/profile)
+ - 个人信息 (/account/profile)
 - 智能体管理 (/agents)
 - 知识库管理 (/knowledge-bases)
 - 工作流管理 (/workflows)
@@ -134,4 +134,3 @@ docker exec -i codehubix-mysql mysql -u demo_user -pdemo_pass_123 demo_db -e "SE
 - `backend/database_schema.sql` - 手动恢复脚本
 - `ops/scripts/restore-database.bat` - 恢复脚本
 - `backend/src/main/java/com/aiagent/config/DataInitializer.java` - 默认数据初始化
-

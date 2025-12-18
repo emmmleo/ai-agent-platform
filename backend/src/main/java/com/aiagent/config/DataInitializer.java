@@ -88,7 +88,7 @@ public class DataInitializer implements CommandLineRunner {
         
         // 检查并创建/更新菜单（使用新路径）
                ensureMenuExists(allMenus, "仪表盘", "/", 1, "ROLE_USER,ROLE_ADMIN");
-               ensureMenuExists(allMenus, "个人信息", "/profile", 2, "ROLE_USER,ROLE_ADMIN");
+               ensureMenuExists(allMenus, "个人信息", "/account/profile", 2, "ROLE_USER,ROLE_ADMIN");
                ensureMenuExists(allMenus, "智能体管理", "/agents", 3, "ROLE_USER,ROLE_ADMIN");
                ensureMenuExists(allMenus, "知识库管理", "/knowledge-bases", 4, "ROLE_USER,ROLE_ADMIN");
                ensureMenuExists(allMenus, "工作流管理", "/workflows", 5, "ROLE_USER,ROLE_ADMIN");
