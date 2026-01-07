@@ -100,6 +100,24 @@ public class JwtUtils {
         return null;
     }
 
+    /**
+     * 从请求中获取用户ID
+     */
+    public Long getUserIdFromRequest(jakarta.servlet.http.HttpServletRequest request) {
+        String header = request.getHeader(jwtConfig.getHeader());
+        String token = extractTokenFromHeader(header);
+        if (token != null && validateToken(token)) {
+            Claims claims = buildParser().parseSignedClaims(token).getPayload();
+            Object userId = claims.get("userId");
+            if (userId instanceof Integer) {
+                return ((Integer) userId).longValue();
+            } else if (userId instanceof Long) {
+                return (Long) userId;
+            }
+        }
+        return null;
+    }
+
     private List<String> extractAuthorities(Collection<?> authorities) {
         return authorities.stream()
                 .map(Object::toString)

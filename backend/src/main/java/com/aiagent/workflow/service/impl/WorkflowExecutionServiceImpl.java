@@ -231,10 +231,40 @@ public class WorkflowExecutionServiceImpl implements WorkflowExecutionService {
             context.put(nodeId, nodeResult);
 
             // 更新后续节点
+            // For condition nodes, we need to determine which branch to follow
+            String activeBranchId = null;
+            if ("condition".equalsIgnoreCase(node.getType())) {
+                activeBranchId = (String) nodeResult.get("activeBranchId");
+            }
+
             for (String nextNodeId : graph.get(nodeId)) {
-                inDegree.put(nextNodeId, inDegree.get(nextNodeId) - 1);
-                if (inDegree.get(nextNodeId) == 0) {
-                    queue.offer(nextNodeId);
+                // Check if this edge should be traversed
+                boolean shouldTraverse = true;
+                
+                if (activeBranchId != null) {
+                    // Find the edge connecting nodeId to nextNodeId
+                    // We need to look up the edge definition to check its condition/branchId
+                    // Since graph structure doesn't store edge properties, we iterate original edges
+                    String edgeCondition = null;
+                    for (CreateWorkflowRequest.Edge edge : edges) {
+                        if (edge.getSource().equals(nodeId) && edge.getTarget().equals(nextNodeId)) {
+                            edgeCondition = edge.getCondition();
+                            break;
+                        }
+                    }
+                    
+                    // If edge has a condition (branchId), it must match the active branch
+                    // STRICT MODE: If activeBranchId is set (Condition Node), edge MUST have matching condition
+                    if (edgeCondition == null || !edgeCondition.equals(activeBranchId)) {
+                        shouldTraverse = false;
+                    }
+                }
+
+                if (shouldTraverse) {
+                    inDegree.put(nextNodeId, inDegree.get(nextNodeId) - 1);
+                    if (inDegree.get(nextNodeId) == 0) {
+                        queue.offer(nextNodeId);
+                    }
                 }
             }
         }
@@ -262,6 +292,7 @@ public class WorkflowExecutionServiceImpl implements WorkflowExecutionService {
                 case "start":
                     result.put("output", "工作流开始");
                     // Forward all input parameters (from context) to Start Node output
+                    // This allows accessing inputs via {node_startId.param}
                     // This allows accessing inputs via {node_startId.param}
                     if (context != null) {
                         result.putAll(context);
@@ -298,7 +329,10 @@ public class WorkflowExecutionServiceImpl implements WorkflowExecutionService {
                     }
                     
                     if (StringUtils.isEmpty(userPrompt)) {
-                        throw new IllegalArgumentException("User prompt is required for LLM node");
+                        // throw new IllegalArgumentException("User prompt is required for LLM node");
+                        // Allow empty user prompt if system prompt is present, or just warn
+                        log.warn("User prompt is empty for LLM node {}", node.getId());
+                        userPrompt = " "; // Use empty space to avoid error
                     }
                     
                     // Call LLM
@@ -331,8 +365,77 @@ public class WorkflowExecutionServiceImpl implements WorkflowExecutionService {
                     
                     log.info(">>> LLM node executed successfully");
                     break;
+                case "reply":
+                    String content = (String) node.getData().get("content");
+                    if (content != null) {
+                        String processedContent = replaceVariables(content, context);
+                        result.put("content", processedContent);
+                        result.put("output", processedContent);
+                        log.info(">>> 回复节点执行完成: {}", processedContent);
+                    } else {
+                        result.put("output", "");
+                    }
+                    break;
                 case "condition":
-                    result.put("output", "条件判断结果（模拟）");
+                    // Evaluate conditions to find active branch
+                    String activeBranchId = "branch_else"; // Default to ELSE
+                    String activeBranchName = "ELSE";
+                    
+                    if (node.getData() != null && node.getData().containsKey("branches")) {
+                        List<Map<String, Object>> branches = (List<Map<String, Object>>) node.getData().get("branches");
+                        
+                        for (Map<String, Object> branch : branches) {
+                            String branchName = (String) branch.get("name");
+                            if ("ELSE".equals(branchName)) continue;
+                            
+                            String logic = (String) branch.get("logic"); // AND / OR
+                            List<Map<String, Object>> conditions = (List<Map<String, Object>>) branch.get("conditions");
+                            
+                            boolean branchMatched = false;
+                            if (conditions == null || conditions.isEmpty()) {
+                                branchMatched = true; // No conditions = true? Or false? Usually true for empty groups if logic is AND
+                            } else {
+                                if ("OR".equalsIgnoreCase(logic)) {
+                                    branchMatched = false;
+                                    for (Map<String, Object> cond : conditions) {
+                                        if (evaluateCondition(cond, context)) {
+                                            branchMatched = true;
+                                            break;
+                                        }
+                                    }
+                                } else { // AND
+                                    branchMatched = true;
+                                    for (Map<String, Object> cond : conditions) {
+                                        if (!evaluateCondition(cond, context)) {
+                                            branchMatched = false;
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                            
+                            if (branchMatched) {
+                                activeBranchId = (String) branch.get("id");
+                                activeBranchName = branchName;
+                                break; // Stop at first match (IF/ELIF logic)
+                            }
+                        }
+                        
+                        // If no match found, activeBranchId remains "branch_else" (or whatever the ELSE branch ID is)
+                        if (activeBranchName.equals("ELSE")) {
+                             // Find ELSE branch ID
+                             for (Map<String, Object> branch : branches) {
+                                 if ("ELSE".equals(branch.get("name"))) {
+                                     activeBranchId = (String) branch.get("id");
+                                     break;
+                                 }
+                             }
+                        }
+                    }
+                    
+                    result.put("output", "条件分支: " + activeBranchName);
+                    result.put("activeBranchId", activeBranchId);
+                    log.info(">>> 条件节点执行完成, 激活分支: {} ({})", activeBranchName, activeBranchId);
                     break;
                 case "action":
                     result.put("output", "动作执行结果（模拟）");
@@ -351,24 +454,19 @@ public class WorkflowExecutionServiceImpl implements WorkflowExecutionService {
         return result;
     }
 
-    /**
-     * Variable replacement, supporting the following formats:
-     * - {node_id} - Reference node output
-     * - {node_id.field} - Reference specific field of node output
-     * - {input.param} - Reference workflow input parameter
-     */
     private String replaceVariables(String text, Map<String, Object> context) {
         if (text == null) {
             return null;
         }
 
-        // Match variable: {node_id} or {node_id.field} or {input.param}
-        Pattern pattern = Pattern.compile("\\{([^}]+)\\}");
+        // Match variable: {{node_id}} or {{node_id.field}} or {{input.param}}
+        // Updated to use double curly braces {{...}} to avoid conflict with JSON
+        Pattern pattern = Pattern.compile("\\{\\{([^}]+)\\}\\}");
         Matcher matcher = pattern.matcher(text);
 
         StringBuffer sb = new StringBuffer();
         while (matcher.find()) {
-            String varPath = matcher.group(1);
+            String varPath = matcher.group(1).trim(); // trim whitespace
             String replacement = matcher.group(0); // Default to original text if not found
 
             try {
@@ -471,6 +569,86 @@ public class WorkflowExecutionServiceImpl implements WorkflowExecutionService {
         response.setCreatedAt(execution.getCreatedAt());
         return response;
     }
+
+    private boolean evaluateCondition(Map<String, Object> condition, Map<String, Object> context) {
+        String variable = (String) condition.get("variable");
+        String operator = (String) condition.get("operator");
+        String value = (String) condition.get("value");
+        
+        // Resolve variable value from context
+        // Variable format: {{node_id.field}} or {{input.param}} or just param name
+        // We reuse replaceVariables logic but need the raw object, not string
+        Object varValue = resolveVariableValue(variable, context);
+        String varStr = varValue != null ? String.valueOf(varValue) : "";
+        
+        // Resolve target value (it might also contain variables)
+        String targetVal = replaceVariables(value, context);
+        if (targetVal == null) targetVal = "";
+        
+        switch (operator) {
+            case "==": return varStr.equals(targetVal);
+            case "!=": return !varStr.equals(targetVal);
+            case ">": return compare(varStr, targetVal) > 0;
+            case "<": return compare(varStr, targetVal) < 0;
+            case ">=": return compare(varStr, targetVal) >= 0;
+            case "<=": return compare(varStr, targetVal) <= 0;
+            case "contains": return varStr.contains(targetVal);
+            case "not_contains": return !varStr.contains(targetVal);
+            case "start_with": return varStr.startsWith(targetVal);
+            case "end_with": return varStr.endsWith(targetVal);
+            case "is": return varStr.equals(targetVal);
+            case "is_not": return !varStr.equals(targetVal);
+            case "is_empty": return StringUtils.isEmpty(varStr);
+            case "is_not_empty": return !StringUtils.isEmpty(varStr);
+            default: return false;
+        }
+    }
+    
+    private int compare(String v1, String v2) {
+        try {
+            double d1 = Double.parseDouble(v1);
+            double d2 = Double.parseDouble(v2);
+            return Double.compare(d1, d2);
+        } catch (NumberFormatException e) {
+            return v1.compareTo(v2);
+        }
+    }
+    
+    private Object resolveVariableValue(String variable, Map<String, Object> context) {
+        if (variable == null) return null;
+        
+        // Strip {{ }} if present
+        if (variable.startsWith("{{") && variable.endsWith("}}")) {
+            variable = variable.substring(2, variable.length() - 2).trim();
+        }
+        
+        if (variable.startsWith("input.")) {
+            return context.get(variable.substring(6));
+        } else if (variable.contains(".")) {
+            String[] parts = variable.split("\\.", 2);
+            String nodeId = parts[0];
+            String field = parts[1];
+            
+            Object nodeOutput = context.get(nodeId);
+            if (nodeOutput instanceof Map) {
+                return getNestedValue((Map<String, Object>) nodeOutput, field);
+            }
+        } else {
+            return context.get(variable);
+        }
+        return null;
+    }
+    
+    private Object getNestedValue(Map<String, Object> map, String path) {
+        String[] parts = path.split("\\.");
+        Object current = map;
+        for (String part : parts) {
+            if (current instanceof Map) {
+                current = ((Map<?, ?>) current).get(part);
+            } else {
+                return null;
+            }
+        }
+        return current;
+    }
 }
-
-

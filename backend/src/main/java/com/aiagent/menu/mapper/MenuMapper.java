@@ -12,6 +12,10 @@ public interface MenuMapper {
 
     int insert(Menu menu);
 
+    int update(Menu menu);
+
+    int deleteById(Long id);
+
     long count();
 }
 

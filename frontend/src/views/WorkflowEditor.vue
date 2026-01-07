@@ -39,6 +39,7 @@
           />
           <button @click="handleAddStartNode" class="toolbar-btn">添加起始节点</button>
           <button @click="handleAddEndNode" class="toolbar-btn">添加结束节点</button>
+          <button @click="handleAutoLayout" class="toolbar-btn">节点整理</button>
           <button @click="handleClear" class="toolbar-btn">清空</button>
         </div>
 
@@ -47,33 +48,42 @@
           @drop="handleDrop"
           @dragover.prevent
           @click="handleCanvasClick"
+          @mousemove="handleMouseMove"
+          @mouseup="handleGlobalMouseUp"
         >
           <svg class="edges-layer">
-            <line
-              v-for="edge in edges"
-              :key="edge.id"
-              :x1="getNodeX(edge.source)"
-              :y1="getNodeY(edge.source)"
-              :x2="getNodeX(edge.target)"
-              :y2="getNodeY(edge.target)"
-              stroke="#666"
-              stroke-width="4"
-              marker-end="url(#arrowhead)"
-              @click="handleEdgeClick(edge)"
-              class="workflow-edge"
-            />
             <defs>
               <marker
                 id="arrowhead"
                 markerWidth="10"
-                markerHeight="10"
+                markerHeight="7"
                 refX="9"
-                refY="3"
+                refY="3.5"
                 orient="auto"
               >
-                <polygon points="0 0, 10 3, 0 6" fill="#666" />
+                <polygon points="0 0, 10 3.5, 0 7" fill="#999" />
               </marker>
             </defs>
+            <path
+              v-for="edge in edges"
+              :key="edge.id"
+              :d="getEdgePath(edge)"
+              stroke="#999"
+              stroke-width="2"
+              fill="none"
+              marker-end="url(#arrowhead)"
+              @click="handleEdgeClick(edge)"
+              class="workflow-edge"
+            />
+            <path
+              v-if="tempEdge"
+              :d="getTempEdgePath()"
+              stroke="#999"
+              stroke-width="2"
+              stroke-dasharray="5,5"
+              fill="none"
+              marker-end="url(#arrowhead)"
+            />
           </svg>
 
           <div
@@ -83,9 +93,9 @@
             :class="{ 'is-selected': sourceNode?.id === node.id }"
             :style="{ left: node.position?.x + 'px', top: node.position?.y + 'px' }"
             @mousedown="handleNodeMouseDown($event, node)"
-            @click.stop="handleNodeClick(node)"
             @dblclick.stop="handleEditNode(node)"
           >
+            <div class="node-port input" @mouseup="handlePortMouseUp($event, node, 'input')"></div>
             <div class="node-header">
               <span class="node-type-badge">{{ getNodeTypeName(node.type) }}</span>
               <div class="node-actions">
@@ -94,14 +104,31 @@
               </div>
             </div>
             <div class="node-body">{{ node.name }}</div>
+            
+            <!-- Standard Output Port -->
+            <div v-if="node.type !== 'condition'" class="node-port output" @mousedown.stop="handlePortMouseDown($event, node, 'output')"></div>
+            
+            <!-- Condition Node Output Ports -->
+            <div v-else class="condition-ports" style="position: absolute; right: -6px; top: 40px; display: flex; flex-direction: column; gap: 15px;">
+               <div 
+                 v-for="(branch, idx) in (node.data?.branches || [{id: 'true', name: 'IF'}, {id: 'false', name: 'ELSE'}])" 
+                 :key="idx"
+                 class="node-port output branch-port"
+                 :title="branch.name"
+                 @mousedown.stop="handlePortMouseDown($event, node, 'output', branch.id)"
+                 style="position: relative; right: 0; top: 0;"
+               >
+                 <span style="position: absolute; right: 12px; top: -2px; font-size: 10px; white-space: nowrap; color: #666;">{{ branch.name }}</span>
+               </div>
+            </div>
           </div>
         </div>
       </div>
     </div>
 
     <!-- Node Configuration Modal -->
-    <div v-if="editingNode" class="modal-overlay" @click="closeEditModal">
-      <div class="modal-content" @click.stop>
+    <div v-if="editingNode" class="modal-overlay" @click.self="closeEditModal">
+      <div class="modal-content">
         <div class="modal-header">
           <h3>配置节点: {{ editingNode.name }}</h3>
           <button class="close-btn" @click="closeEditModal">×</button>
@@ -118,6 +145,59 @@
           <div class="form-group">
             <label>节点名称</label>
             <input v-model="editForm.name" type="text" placeholder="请输入节点名称" />
+          </div>
+
+          <!-- Start Node Fields -->
+          <div v-if="editingNode.type === 'start'">
+            <div class="form-group">
+              <label>输入字段配置</label>
+              <div class="help-text">定义应用启动时需要用户提供的信息</div>
+              
+              <div class="input-field-list">
+                <div v-for="(field, index) in editForm.data.inputFields" :key="index" class="input-field-item" style="border: 1px solid #eee; padding: 10px; margin-bottom: 10px; border-radius: 4px; background: #f9f9f9;">
+                  <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                    <strong>字段 #{{ index + 1 }}</strong>
+                    <button @click="removeInputField(index)" style="color: #ff4d4f; border: none; background: none; cursor: pointer;">删除</button>
+                  </div>
+                  
+                  <div class="form-row" style="display: flex; gap: 10px; margin-bottom: 8px;">
+                    <div style="flex: 1;">
+                      <label style="font-size: 12px;">变量名 (Key)</label>
+                      <input v-model="field.variable" type="text" placeholder="例如: user_name" style="font-size: 13px;" />
+                    </div>
+                    <div style="flex: 1;">
+                      <label style="font-size: 12px;">显示名称 (Label)</label>
+                      <input v-model="field.label" type="text" placeholder="例如: 用户姓名" style="font-size: 13px;" />
+                    </div>
+                  </div>
+
+                  <div class="form-row" style="display: flex; gap: 10px; margin-bottom: 8px;">
+                    <div style="flex: 1;">
+                      <label style="font-size: 12px;">类型</label>
+                      <select v-model="field.type" style="font-size: 13px;">
+                        <option value="text">短文本 (Text)</option>
+                        <option value="paragraph">长文本 (Paragraph)</option>
+                        <option value="select">下拉选项 (Select)</option>
+                        <option value="number">数字 (Number)</option>
+                      </select>
+                    </div>
+                    <div style="flex: 0 0 60px; display: flex; align-items: center; padding-top: 20px;">
+                      <label style="font-size: 12px; display: flex; align-items: center; cursor: pointer;">
+                        <input type="checkbox" v-model="field.required" style="margin-right: 4px;" /> 必填
+                      </label>
+                    </div>
+                  </div>
+
+                  <!-- Options for Select type -->
+                  <div v-if="field.type === 'select'" style="margin-top: 8px;">
+                    <label style="font-size: 12px;">选项列表 (每行一个)</label>
+                    <textarea v-model="field.options" rows="3" placeholder="选项A&#10;选项B&#10;选项C" style="font-size: 13px;"></textarea>
+                  </div>
+                </div>
+              </div>
+
+              <button @click="addInputField" style="width: 100%; padding: 8px; background: #e6f7ff; border: 1px dashed #1890ff; color: #1890ff; border-radius: 4px; cursor: pointer; margin-top: 8px;">+ 添加输入字段</button>
+            </div>
           </div>
 
           <!-- Agent/LLM Node Fields -->
@@ -142,7 +222,13 @@
             </div>
             <div class="form-group">
               <label>用户提示词 (User Prompt)</label>
-              <textarea v-model="editForm.data.user_prompt" rows="5" placeholder="请输入问题... 支持变量 {input.question}"></textarea>
+              <textarea id="llm-user-prompt" v-model="editForm.data.user_prompt" rows="5" placeholder="请输入问题... 支持变量 {input.question}"></textarea>
+              <div style="margin-top: 5px; margin-bottom: 5px;">
+                <select style="width: 100%; padding: 4px;" @change="handleVariableSelect($event, 'user_prompt', 'llm-user-prompt')">
+                  <option value="">插入变量...</option>
+                  <option v-for="v in availableVariables" :key="v.value" :value="v.value">{{ v.label }}</option>
+                </select>
+              </div>
               <div class="help-text">支持变量: {input.param}, {nodeId.output}</div>
             </div>
             <div class="form-group">
@@ -174,7 +260,13 @@
             </div>
             <div class="form-group">
               <label>Body (请求体)</label>
-              <textarea v-model="editForm.data.body" rows="5" placeholder='{ "key": "value" } or Raw Text'></textarea>
+              <textarea id="http-body" v-model="editForm.data.body" rows="5" placeholder='{ "key": "value" } or Raw Text'></textarea>
+              <div style="margin-top: 5px; margin-bottom: 5px;">
+                <select style="width: 100%; padding: 4px;" @change="handleVariableSelect($event, 'body', 'http-body')">
+                  <option value="">插入变量...</option>
+                  <option v-for="v in availableVariables" :key="v.value" :value="v.value">{{ v.label }}</option>
+                </select>
+              </div>
               <div class="help-text">支持变量: {input.param}, {nodeId.data.field}</div>
             </div>
             <div class="form-row" style="display: flex; gap: 10px;">
@@ -198,7 +290,13 @@
           <div v-if="editingNode.type === 'knowledge_retrieval'">
              <div class="form-group">
                <label>查询文本 (Query)</label>
-               <input v-model="editForm.data.query" type="text" placeholder="请输入查询内容，支持变量 {input.q}" />
+               <input id="knowledge-query" v-model="editForm.data.query" type="text" placeholder="请输入查询内容，支持变量 {input.q}" />
+               <div style="margin-top: 5px; margin-bottom: 5px;">
+                 <select style="width: 100%; padding: 4px;" @change="handleVariableSelect($event, 'query', 'knowledge-query')">
+                  <option value="">插入变量...</option>
+                  <option v-for="v in availableVariables" :key="v.value" :value="v.value">{{ v.label }}</option>
+                </select>
+               </div>
              </div>
              
              <div class="form-group">
@@ -228,11 +326,52 @@
 
           <!-- Condition Node Fields -->
           <div v-if="editingNode.type === 'condition'">
-             <!-- Placeholder for condition config -->
-             <div class="form-group">
-                <label>条件表达式</label>
-                <input v-model="editForm.data.condition" type="text" placeholder="e.g. variable == 'value'" />
+             <div class="condition-branches">
+                <div v-for="(branch, bIndex) in editForm.data.branches" :key="bIndex" class="branch-item" style="border: 1px solid #eee; padding: 10px; margin-bottom: 10px; border-radius: 4px; background: #f9f9f9;">
+                   <div class="branch-header" style="display: flex; justify-content: space-between; margin-bottom: 8px; font-weight: bold;">
+                      <span>{{ branch.name }}</span>
+                      <button v-if="branch.name !== 'ELSE' && bIndex > 0" @click="removeBranch(bIndex)" style="color: #ff4d4f; border: none; background: none; cursor: pointer;">删除</button>
+                   </div>
+                   
+                   <div v-if="branch.name !== 'ELSE'">
+                       <div class="form-group">
+                          <label style="font-size: 12px;">条件逻辑</label>
+                          <select v-model="branch.logic" style="margin-bottom: 8px; width: 100%; padding: 4px; border: 1px solid #ddd; border-radius: 4px; font-size: 12px;">
+                             <option value="AND">满足所有条件 (AND)</option>
+                             <option value="OR">满足任一条件 (OR)</option>
+                          </select>
+                       </div>
+
+                       <div v-for="(item, cIndex) in branch.conditions" :key="cIndex" class="condition-row" style="display: flex; gap: 5px; margin-bottom: 5px;">
+                          <div style="flex: 1; min-width: 0;">
+                             <input v-model="item.variable" type="text" placeholder="变量" list="variable-suggestions" style="width: 100%; font-size: 12px; padding: 4px;" />
+                             <datalist id="variable-suggestions">
+                               <option v-for="v in availableVariables" :key="v.value" :value="v.value">{{ v.label }}</option>
+                             </datalist>
+                          </div>
+                          <select v-model="item.operator" style="width: 85px; flex-shrink: 0; font-size: 12px; padding: 4px;">
+                             <option value="contains">包含</option>
+                             <option value="not_contains">不包含</option>
+                             <option value="start_with">开始是</option>
+                             <option value="end_with">结束是</option>
+                             <option value="is">是</option>
+                             <option value="is_not">不是</option>
+                             <option value="is_empty">为空</option>
+                             <option value="is_not_empty">不为空</option>
+                          </select>
+                          <input v-if="!['is_empty', 'is_not_empty'].includes(item.operator)" v-model="item.value" type="text" placeholder="值" style="flex: 1; min-width: 0; font-size: 12px; padding: 4px;" />
+                          <button @click="removeBranchCondition(bIndex, cIndex)" style="color: #999; border: none; background: none; cursor: pointer;">×</button>
+                       </div>
+                       
+                       <button @click="addBranchCondition(bIndex)" style="font-size: 12px; color: #42b983; background: none; border: none; cursor: pointer; padding: 0;">+ 添加条件</button>
+                   </div>
+                   <div v-else class="help-text">
+                       当以上所有条件都不满足时，执行此路径。
+                   </div>
+                </div>
              </div>
+             
+             <button @click="addBranch" style="width: 100%; padding: 8px; background: #e6f7ff; border: 1px dashed #1890ff; color: #1890ff; border-radius: 4px; cursor: pointer; margin-top: 8px;">+ 添加分支 (ELIF)</button>
           </div>
 
           <!-- Action Node Fields -->
@@ -246,6 +385,29 @@
              </div>
              <!-- ... more fields ... -->
           </div>
+
+          <!-- Reply Node Fields -->
+          <div v-if="editingNode.type === 'reply'">
+                <div class="form-group">
+                   <label>回复内容</label>
+                   <div class="variable-selector" style="margin-bottom: 5px;">
+                      <select @change="handleVariableSelect($event, 'content', 'reply-content-input')" style="padding: 4px; border-radius: 4px; border: 1px solid #ddd;">
+                        <option value="">插入变量...</option>
+                        <option v-for="v in availableVariables" :key="v.value" :value="v.value">{{ v.label }}</option>
+                      </select>
+                   </div>
+                   <textarea
+                     id="reply-content-input"
+                     v-model="editForm.data.content"
+                     rows="6"
+                     placeholder="在此输入回复内容，支持使用变量..."
+                     style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; resize: vertical;"
+                   ></textarea>
+                   <div class="help-text" style="font-size: 12px; color: #666; margin-top: 4px;" v-pre>
+                     支持纯文本或使用变量（如 {{node_id.output}}）。
+                   </div>
+                </div>
+             </div>
 
         </div>
 
@@ -293,6 +455,10 @@ const selectedNode = ref<WorkflowNode | null>(null)
 const sourceNode = ref<WorkflowNode | null>(null)
 const nodeOffset = ref({ x: 0, y: 0 })
 
+// New State for Dragging Connections
+const tempEdge = ref<{ start: { x: number; y: number }; end: { x: number; y: number } } | null>(null)
+const draggedPort = ref<{ nodeId: string; type: 'input' | 'output'; branchId?: string } | null>(null)
+
 // Node Editing State
 const editingNode = ref<WorkflowNode | null>(null)
 const editForm = ref<any>({
@@ -300,42 +466,277 @@ const editForm = ref<any>({
   data: {}
 })
 
+// 计算可用变量
+const availableVariables = computed(() => {
+  if (!editingNode.value) return []
+  
+  try {
+    const vars: { label: string; value: string }[] = []
+    const visited = new Set<string>()
+    
+    // 简单的上游遍历（广度优先，反向）
+    // 注意：edges 是 source -> target
+    // 我们需要找到所有 target 为当前节点的边，然后获取 source
+    
+    const upstreamNodes = new Set<string>()
+    const findUpstream = (nodeId: string) => {
+      if (!nodeId) return
+      const incomingEdges = edges.value.filter(e => e.target === nodeId)
+      for (const edge of incomingEdges) {
+        if (edge.source && !upstreamNodes.has(edge.source)) {
+          upstreamNodes.add(edge.source)
+          findUpstream(edge.source)
+        }
+      }
+    }
+    
+    findUpstream(editingNode.value.id)
+    
+    upstreamNodes.forEach(sourceId => {
+      const node = nodes.value.find(n => n.id === sourceId)
+      if (!node) return
+      
+      // 根据节点类型定义输出变量
+      switch (node.type) {
+        case 'start':
+          // Add default input variable (legacy support)
+          vars.push({ label: `[起始] ${node.name}.input`, value: `{{${node.id}.input}}` })
+          
+          // Add configured input fields
+          if (node.data && node.data.inputFields) {
+            node.data.inputFields.forEach((field: any) => {
+              if (field.variable) {
+                vars.push({ 
+                  label: `[起始] ${node.name}.${field.variable} (${field.label || field.variable})`, 
+                  value: `{{${node.id}.${field.variable}}}` 
+                })
+              }
+            })
+          }
+          break
+        case 'agent':
+          vars.push({ label: `[LLM] ${node.name}.output`, value: `{{${node.id}.output}}` })
+          break
+        case 'knowledge_retrieval':
+          vars.push({ label: `[知识库] ${node.name}.results`, value: `{{${node.id}.results}}` })
+          break
+        case 'http':
+          vars.push({ label: `[HTTP] ${node.name}.status`, value: `{{${node.id}.status}}` })
+          vars.push({ label: `[HTTP] ${node.name}.body`, value: `{{${node.id}.body}}` })
+          break
+        case 'action':
+          vars.push({ label: `[动作] ${node.name}.result`, value: `{{${node.id}.result}}` })
+          break
+      }
+    })
+    
+    return vars
+  } catch (e) {
+    console.error('Error calculating availableVariables:', e)
+    return []
+  }
+})
+
+// Condition Node Logic
+const addCondition = () => {
+  if (!editForm.value.data.conditions) {
+    editForm.value.data.conditions = []
+  }
+  editForm.value.data.conditions.push({
+    variable: '',
+    operator: '==',
+    value: ''
+  })
+}
+
+const removeCondition = (index: number) => {
+  if (editForm.value.data.conditions) {
+    editForm.value.data.conditions.splice(index, 1)
+  }
+}
+
+// Branch Management
+const addBranch = () => {
+    if (!editForm.value.data.branches) editForm.value.data.branches = []
+    // Insert before ELSE
+    const elseIndex = editForm.value.data.branches.findIndex((b: any) => b.name === 'ELSE')
+    const newBranch = { 
+        id: `branch_${Date.now()}`, 
+        name: `ELIF ${editForm.value.data.branches.length}`, // Simple naming
+        logic: 'AND', 
+        conditions: [] 
+    }
+    
+    if (elseIndex !== -1) {
+        editForm.value.data.branches.splice(elseIndex, 0, newBranch)
+    } else {
+        editForm.value.data.branches.push(newBranch)
+        // Ensure ELSE exists
+        editForm.value.data.branches.push({ id: 'branch_else', name: 'ELSE', conditions: [] })
+    }
+    
+    // Renumber ELIFs
+    updateBranchNames()
+}
+
+const removeBranch = (index: number) => {
+    editForm.value.data.branches.splice(index, 1)
+    updateBranchNames()
+}
+
+const updateBranchNames = () => {
+    let elifCount = 1
+    editForm.value.data.branches.forEach((b: any, idx: number) => {
+        if (idx === 0) b.name = 'IF'
+        else if (idx === editForm.value.data.branches.length - 1) b.name = 'ELSE'
+        else b.name = `ELIF ${elifCount++}`
+    })
+}
+
+const addBranchCondition = (branchIndex: number) => {
+    if (!editForm.value.data.branches[branchIndex].conditions) {
+        editForm.value.data.branches[branchIndex].conditions = []
+    }
+    editForm.value.data.branches[branchIndex].conditions.push({
+        variable: '',
+        operator: '==',
+        value: ''
+    })
+}
+
+const removeBranchCondition = (branchIndex: number, conditionIndex: number) => {
+    editForm.value.data.branches[branchIndex].conditions.splice(conditionIndex, 1)
+}
+
+// Start Node Logic
+const addInputField = () => {
+  if (!editForm.value.data.inputFields) {
+    editForm.value.data.inputFields = []
+  }
+  editForm.value.data.inputFields.push({
+    variable: '',
+    label: '',
+    type: 'text',
+    required: false,
+    options: ''
+  })
+}
+
+const removeInputField = (index: number) => {
+  if (editForm.value.data.inputFields) {
+    editForm.value.data.inputFields.splice(index, 1)
+  }
+}
+
 // 打开编辑弹窗
 const handleEditNode = (node: WorkflowNode) => {
-  console.log('Editing node:', node.id, node.type, JSON.stringify(node.data))
-  editingNode.value = node
-  // Deep copy to avoid direct mutation
-  const data = JSON.parse(JSON.stringify(node.data || {}))
+  if (!node) return
   
-  // HTTP Node: Convert headers object back to string for textarea
-  if (node.type === 'http') {
-      if (data.headers && typeof data.headers === 'object') {
-          data.headers = JSON.stringify(data.headers, null, 2)
-      }
-      // Defaults
-      if (data.method === undefined) data.method = 'GET'
-      if (data.timeout === undefined) data.timeout = 10000
-      if (data.retryCount === undefined) data.retryCount = 0
-      if (data.validateSSL === undefined) data.validateSSL = true
-  }
+  try {
+    console.log('Editing node:', node.id, node.type, JSON.stringify(node.data))
+    
+    // Deep copy to avoid direct mutation
+    const data = JSON.parse(JSON.stringify(node.data || {}))
+    
+    // HTTP Node: Convert headers object back to string for textarea
+    if (node.type === 'http') {
+        if (data.headers && typeof data.headers === 'object') {
+            data.headers = JSON.stringify(data.headers, null, 2)
+        }
+        // Defaults
+        if (data.method === undefined) data.method = 'GET'
+        if (data.timeout === undefined) data.timeout = 10000
+        if (data.retryCount === undefined) data.retryCount = 0
+        if (data.validateSSL === undefined) data.validateSSL = true
+    }
 
-  // Knowledge Node Defaults
-  if (node.type === 'knowledge_retrieval') {
-     if (!data.knowledgeBaseIds) data.knowledgeBaseIds = []
-     if (data.topK === undefined) data.topK = 3
-     if (data.minScore === undefined) data.minScore = 0.6
+    // Knowledge Node Defaults
+    if (node.type === 'knowledge_retrieval') {
+       if (!data.knowledgeBaseIds) data.knowledgeBaseIds = []
+       if (data.topK === undefined) data.topK = 3
+       if (data.minScore === undefined) data.minScore = 0.6
+    }
+
+    // Condition Node Defaults
+    if (node.type === 'condition') {
+       if (!data.branches) {
+           // Migrate legacy conditions or create default
+           if (data.conditions && data.conditions.length > 0) {
+               data.branches = [
+                   { id: 'branch_if', name: 'IF', logic: data.logic || 'AND', conditions: data.conditions },
+                   { id: 'branch_else', name: 'ELSE', conditions: [] }
+               ]
+           } else {
+               data.branches = [
+                   { id: 'branch_if', name: 'IF', logic: 'AND', conditions: [] },
+                   { id: 'branch_else', name: 'ELSE', conditions: [] }
+               ]
+           }
+       }
+    }
+
+    // Start Node Defaults
+    if (node.type === 'start') {
+      if (!data.inputFields) data.inputFields = []
+    }
+
+    // Reply Node Defaults
+    if (node.type === 'reply') {
+      if (data.content === undefined) data.content = ''
+    }
+    
+    // Update form FIRST to ensure data is ready before modal renders
+    editForm.value = {
+      name: node.name,
+      data: data
+    }
+    
+    // Then set editingNode to trigger modal display
+    editingNode.value = node
+    console.log('Initialized editForm:', JSON.stringify(editForm.value))
+  } catch (e) {
+    console.error('Error in handleEditNode:', e)
+    // Prevent white screen by not opening modal if error occurs
+    editingNode.value = null
   }
-  
-  editForm.value = {
-    name: node.name,
-    data: data
-  }
-  console.log('Initialized editForm:', JSON.stringify(editForm.value))
 }
 
 // 关闭编辑弹窗
 const closeEditModal = () => {
   editingNode.value = null
+}
+
+// 插入变量到指定输入框
+const insertVariable = (fieldPath: string, variable: string, elementId: string) => {
+  if (!variable) return
+  
+  const textarea = document.getElementById(elementId) as HTMLTextAreaElement | HTMLInputElement
+  if (textarea) {
+    const start = textarea.selectionStart || 0
+    const end = textarea.selectionEnd || 0
+    const text = textarea.value
+    const newText = text.substring(0, start) + variable + text.substring(end)
+    
+    // 更新 DOM 值
+    textarea.value = newText
+    
+    // 触发 input 事件以更新 v-model
+    textarea.dispatchEvent(new Event('input'))
+    
+    // 恢复焦点并移动光标
+    textarea.focus()
+    setTimeout(() => {
+      textarea.selectionStart = textarea.selectionEnd = start + variable.length
+    }, 0)
+  }
+}
+
+const handleVariableSelect = (event: Event, fieldPath: string, elementId: string) => {
+  const target = event.target as HTMLSelectElement
+  if (target && target.value) {
+    insertVariable(fieldPath, target.value, elementId)
+    target.value = ''
+  }
 }
 
 // 保存节点配置
@@ -359,12 +760,6 @@ const saveNodeConfig = () => {
           return
       }
       
-      // Attempt to parse body if it looks like JSON? 
-      // Actually backend handles String body and parses it if needed, or treats as Raw. 
-      // But for "variable substitution in Map", we might want to store as Object.
-      // For now, let's keep Body as String or whatever user calls. 
-      // If user types JSON string, we can verify it but easier to just save as string.
-      
       // Ensure specific types
       if (editForm.value.data.timeout) editForm.value.data.timeout = Number(editForm.value.data.timeout)
       if (editForm.value.data.retryCount) editForm.value.data.retryCount = Number(editForm.value.data.retryCount)
@@ -384,6 +779,7 @@ const nodeTypes = [
   { type: 'http', name: 'HTTP请求', icon: '🌐' },
   { type: 'condition', name: '条件', icon: '❓' },
   { type: 'action', name: '动作', icon: '⚡' },
+  { type: 'reply', name: '直接回复', icon: '💬' },
 ]
 
 // 加载工作流详情（编辑模式）
@@ -469,42 +865,103 @@ const handleNodeMouseDown = (event: MouseEvent, node: WorkflowNode) => {
   document.addEventListener('mouseup', handleMouseUp)
 }
 
-// 节点点击事件（修改版：支持连线）
-const handleNodeClick = (node: WorkflowNode) => {
-  // 如果当前没有选中起点，那么这个点就是起点
-  if (!sourceNode.value) {
-    sourceNode.value = node
-    // 给个提示（实际项目中可以用 Toast）
-    console.log('已选中起点，请点击下一个节点进行连线')
-    alert(`已选中起点 [${node.name}]，请点击另一个节点连线，或者再次点击取消`)
+const handlePortMouseDown = (e: MouseEvent, node: WorkflowNode, type: 'input' | 'output', branchId?: string) => {
+  if (type !== 'output') return 
+  
+  let startX = (node.position?.x || 0) + 150
+  let startY = (node.position?.y || 0) + 40
+  
+  // Adjust for branch ports
+  if (node.type === 'condition' && branchId) {
+      const branches = node.data?.branches || [{id: 'true'}, {id: 'false'}]
+      const index = branches.findIndex((b: any) => b.id === branchId)
+      if (index !== -1) {
+          startY = (node.position?.y || 0) + 40 + (index * 25) // 25px gap + offset
+      }
   }
-  // 如果已经有了起点，且点击的不是自己，那就连线！
-  else if (sourceNode.value.id !== node.id) {
-    // 创建一条新线
-    const newEdge: WorkflowEdge = {
-      id: `edge_${Date.now()}`,
-      source: sourceNode.value.id,
-      target: node.id,
-    }
+  
+  draggedPort.value = { nodeId: node.id, type, branchId }
+  tempEdge.value = {
+    start: { x: startX, y: startY },
+    end: { x: startX, y: startY }
+  }
+}
 
-    // 检查是否已经连过线了，防止重复连
-    const exists = edges.value.some(e => e.source === newEdge.source && e.target === newEdge.target)
+const handleMouseMove = (e: MouseEvent) => {
+  if (!tempEdge.value) return
+  
+  const canvas = document.querySelector('.editor-canvas') as HTMLElement
+  const canvasRect = canvas.getBoundingClientRect()
+  
+  tempEdge.value.end = {
+    x: e.clientX - canvasRect.left + canvas.scrollLeft,
+    y: e.clientY - canvasRect.top + canvas.scrollTop
+  }
+}
+
+const handlePortMouseUp = (e: MouseEvent, node: WorkflowNode, type: 'input' | 'output') => {
+  if (!draggedPort.value || !tempEdge.value) return
+  
+  if (type === 'input' && draggedPort.value.type === 'output' && draggedPort.value.nodeId !== node.id) {
+    const exists = edges.value.some(
+      edge => edge.source === draggedPort.value!.nodeId && edge.target === node.id && edge.condition === draggedPort.value!.branchId
+    )
+    
     if (!exists) {
-      edges.value.push(newEdge)
+      edges.value.push({
+        id: `edge_${Date.now()}`,
+        source: draggedPort.value.nodeId,
+        target: node.id,
+        condition: draggedPort.value.branchId // Save branch ID
+      })
     }
+  }
+  
+  tempEdge.value = null
+  draggedPort.value = null
+}
 
-    // 连完线，清空起点，准备下一次操作
-    sourceNode.value = null
+const handleGlobalMouseUp = () => {
+  if (tempEdge.value) {
+    tempEdge.value = null
+    draggedPort.value = null
   }
-  // 如果点击的还是自己，那就取消选中（或者保留原来的改名功能）
-  else {
-    sourceNode.value = null
-    // 如果你想保留双击改名，可以把改名逻辑放这里，或者单独做一个编辑按钮
-    const name = prompt('请输入节点名称:', node.name)
-    if (name !== null) {
-      node.name = name
-    }
+}
+
+const getEdgePath = (edge: WorkflowEdge) => {
+  const source = nodes.value.find(n => n.id === edge.source)
+  const target = nodes.value.find(n => n.id === edge.target)
+  if (!source || !target) return ''
+  
+  let startX = (source.position?.x || 0) + 150
+  let startY = (source.position?.y || 0) + 40
+  
+  // Adjust for branch ports
+  if (source.type === 'condition' && edge.condition) {
+      const branches = source.data?.branches || [{id: 'true'}, {id: 'false'}]
+      const index = branches.findIndex((b: any) => b.id === edge.condition)
+      if (index !== -1) {
+          startY = (source.position?.y || 0) + 40 + (index * 25)
+      }
   }
+  
+  const endX = target.position?.x || 0
+  const endY = (target.position?.y || 0) + 40
+  
+  const deltaX = Math.abs(endX - startX)
+  const controlPointOffset = Math.max(deltaX * 0.5, 50)
+  
+  return `M ${startX} ${startY} C ${startX + controlPointOffset} ${startY}, ${endX - controlPointOffset} ${endY}, ${endX} ${endY}`
+}
+
+const getTempEdgePath = () => {
+  if (!tempEdge.value) return ''
+  const { start, end } = tempEdge.value
+  
+  const deltaX = Math.abs(end.x - start.x)
+  const controlPointOffset = Math.max(deltaX * 0.5, 50)
+  
+  return `M ${start.x} ${start.y} C ${start.x + controlPointOffset} ${start.y}, ${end.x - controlPointOffset} ${end.y}, ${end.x} ${end.y}`
 }
 
 // 删除节点
@@ -542,6 +999,97 @@ const handleAddEndNode = () => {
     position: { x: 300, y: 100 },
   }
   nodes.value.push(newNode)
+}
+
+// 自动整理节点
+const handleAutoLayout = () => {
+  if (nodes.value.length === 0) return
+
+  // 1. Build Graph
+  const adj = new Map<string, string[]>()
+  const inDegree = new Map<string, number>()
+  
+  nodes.value.forEach(node => {
+    adj.set(node.id, [])
+    inDegree.set(node.id, 0)
+  })
+  
+  edges.value.forEach(edge => {
+    if (adj.has(edge.source) && adj.has(edge.target)) {
+      adj.get(edge.source)!.push(edge.target)
+      inDegree.set(edge.target, (inDegree.get(edge.target) || 0) + 1)
+    }
+  })
+
+  // 2. Assign Levels (BFS)
+  const levels = new Map<string, number>()
+  const queue: string[] = []
+  
+  // Find start nodes (in-degree 0)
+  nodes.value.forEach(node => {
+    if (inDegree.get(node.id) === 0) {
+      levels.set(node.id, 0)
+      queue.push(node.id)
+    }
+  })
+  
+  // If no start nodes (cycle), pick the first one
+  if (queue.length === 0 && nodes.value.length > 0) {
+      const firstId = nodes.value[0].id
+      levels.set(firstId, 0)
+      queue.push(firstId)
+  }
+
+  while (queue.length > 0) {
+    const u = queue.shift()!
+    const level = levels.get(u)!
+    
+    const neighbors = adj.get(u) || []
+    neighbors.forEach(v => {
+      if (!levels.has(v)) {
+        levels.set(v, level + 1)
+        queue.push(v)
+      }
+    })
+  }
+  
+  // Handle unvisited nodes (disconnected components)
+  nodes.value.forEach(node => {
+      if (!levels.has(node.id)) {
+          levels.set(node.id, 0)
+      }
+  })
+
+  // 3. Group by Level
+  const levelNodes = new Map<number, string[]>()
+  levels.forEach((level, nodeId) => {
+    if (!levelNodes.has(level)) {
+      levelNodes.set(level, [])
+    }
+    levelNodes.get(level)!.push(nodeId)
+  })
+  
+  // 4. Assign Positions
+  const LEVEL_WIDTH = 250
+  const NODE_HEIGHT = 120
+  const START_X = 100
+  const START_Y = 100
+  
+  levelNodes.forEach((nodeIds, level) => {
+    // Sort nodeIds to minimize crossing? 
+    // Simple heuristic: sort by ID to be deterministic
+    nodeIds.sort() 
+    
+    nodeIds.forEach((nodeId, index) => {
+      const node = nodes.value.find(n => n.id === nodeId)
+      if (node) {
+        node.position = {
+          x: START_X + level * LEVEL_WIDTH,
+          y: START_Y + index * NODE_HEIGHT
+        }
+      }
+    })
+  })
 }
 
 // 清空
@@ -634,6 +1182,15 @@ const loadKnowledgeBases = async () => {
 onMounted(() => {
   if (isEdit.value) {
     loadWorkflow()
+  } else {
+    // Initialize with a Start node for new workflows
+    nodes.value.push({
+      id: `node_${Date.now()}`,
+      type: 'start',
+      name: '起始',
+      position: { x: 100, y: 200 },
+      data: { inputFields: [] }
+    })
   }
   // Load Knowledge Bases for selection
   loadKnowledgeBases()
@@ -905,6 +1462,32 @@ h1 {
 }
 
 /* --- 新增的连线样式 --- */
+.node-port {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  background: #fff;
+  border: 2px solid #42b983;
+  border-radius: 50%;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 10;
+  cursor: crosshair;
+  transition: all 0.2s;
+}
+
+.node-port:hover {
+  background: #42b983;
+  transform: translateY(-50%) scale(1.2);
+}
+
+.node-port.input {
+  left: -6px;
+}
+
+.node-port.output {
+  right: -6px;
+}
 
 /* Node Config Modal */
 .modal-overlay {

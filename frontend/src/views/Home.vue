@@ -104,7 +104,11 @@ const getModuleDescription = (title: string): string => {
 
 // 处理模块点击
 const handleModuleClick = (menu: Menu) => {
-  router.push(menu.path)
+  console.log('Module clicked:', menu)
+  console.log('Navigating to:', menu.path)
+  router.push(menu.path).catch(err => {
+    console.error('Navigation failed:', err)
+  })
 }
 
 // 退出登录
