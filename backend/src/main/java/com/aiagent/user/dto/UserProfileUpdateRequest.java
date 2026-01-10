@@ -13,10 +13,10 @@ public class UserProfileUpdateRequest {
 
     private java.time.LocalDate birthday;
 
-    @Size(min = 1, max = 128, message = "学校长度需1-128之间")
+    @Size(max = 128, message = "学校长度需≤128")
     private String school;
 
-    @Size(min = 7, max = 32, message = "电话长度需7-32之间")
+    @Size(max = 32, message = "电话长度需≤32")
     private String phone;
 
     @Email(message = "邮箱格式不正确")
