@@ -17,6 +17,12 @@ const routes: RouteRecordRaw[] = [
       meta: { requiresAuth: true },
     },
     {
+      path: '/dashboard',
+      name: 'Dashboard',
+      component: () => import('../views/Dashboard.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
       path: '/login',
       name: 'Login',
       component: () => import('../views/Login.vue'),
@@ -27,6 +33,12 @@ const routes: RouteRecordRaw[] = [
       name: 'Register',
       component: () => import('../views/Register.vue'),
       meta: { requiresAuth: false },
+    },
+    {
+      path: '/account/profile',
+      name: 'AccountProfile',
+      component: () => import('../views/AccountProfile.vue'),
+      meta: { requiresAuth: true },
     },
     {
       path: '/users',
@@ -171,4 +183,3 @@ router.beforeEach(async (to, _from, next) => {
 })
 
 export default router
-

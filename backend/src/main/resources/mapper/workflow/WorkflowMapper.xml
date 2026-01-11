@@ -50,9 +50,12 @@
         WHERE id = #{id} AND user_id = #{userId}
     </update>
 
-    <delete id="deleteById" parameterType="long">
+    <delete id="deleteById">
         DELETE FROM workflow WHERE id = #{id}
     </delete>
 
-</mapper>
+    <select id="countByUserId" resultType="int">
+        SELECT COUNT(*) FROM workflow WHERE user_id = #{userId}
+    </select>
 
+</mapper>

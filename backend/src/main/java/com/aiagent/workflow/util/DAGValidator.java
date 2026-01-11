@@ -1,14 +1,19 @@
 package com.aiagent.workflow.util;
 
 import com.aiagent.workflow.dto.CreateWorkflowRequest;
+import com.aiagent.workflow.entity.Workflow;
+import com.aiagent.workflow.entity.WorkflowEdge;
+import com.aiagent.workflow.entity.WorkflowNode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import org.springframework.stereotype.Component;
 import java.util.*;
 
 /**
  * DAG（有向无环图）验证器
  */
+@Component
 public class DAGValidator {
 
     private static final Logger log = LoggerFactory.getLogger(DAGValidator.class);
@@ -84,8 +89,8 @@ public class DAGValidator {
             throw new IllegalArgumentException("工作流必须至少包含一个结束节点（没有出边的节点）");
         }
 
-        // 4. 检查是否有环（使用拓扑排序）
-        if (hasCycle(nodes, edges)) {
+    // 4. 检查是否有环（使用拓扑排序）
+        if (hasCycleForDTO(nodes, edges)) {
             throw new IllegalArgumentException("工作流不能包含环（循环依赖）");
         }
 
@@ -99,9 +104,9 @@ public class DAGValidator {
     }
 
     /**
-     * 检查是否有环（使用DFS）
+     * 检查是否有环（使用DFS，针对WorkflowDTO）
      */
-    private static boolean hasCycle(List<CreateWorkflowRequest.Node> nodes,
+    private static boolean hasCycleForDTO(List<CreateWorkflowRequest.Node> nodes,
                                     List<CreateWorkflowRequest.Edge> edges) {
         // 构建邻接表
         Map<String, List<String>> graph = new HashMap<>();
@@ -137,9 +142,12 @@ public class DAGValidator {
         visited.add(nodeId);
         recursionStack.add(nodeId);
 
-        for (String neighbor : graph.get(nodeId)) {
-            if (hasCycleDFS(neighbor, graph, visited, recursionStack)) {
-                return true;
+        List<String> neighbors = graph.get(nodeId);
+        if (neighbors != null) {
+            for (String neighbor : neighbors) {
+                if (hasCycleDFS(neighbor, graph, visited, recursionStack)) {
+                    return true;
+                }
             }
         }
 
@@ -148,28 +156,35 @@ public class DAGValidator {
     }
 
     /**
-     * 检查所有节点是否可达
+     * 检查所有节点是否可达 (修复版：正向 BFS + 调试日志)
      */
     private static boolean isAllNodesReachable(List<CreateWorkflowRequest.Node> nodes,
                                                List<CreateWorkflowRequest.Edge> edges,
                                                Set<String> startNodes) {
-        // 构建邻接表（反向）
-        Map<String, List<String>> reverseGraph = new HashMap<>();
+        log.info("开始检查节点可达性... 节点总数: {}, 起始节点: {}", nodes.size(), startNodes);
+
+        // 1. 构建【正向】邻接表 (Source -> Target)
+        // 也就是：从这个点出发，能去哪？
+        Map<String, List<String>> forwardGraph = new HashMap<>();
         for (CreateWorkflowRequest.Node node : nodes) {
-            reverseGraph.put(node.getId(), new ArrayList<>());
+            forwardGraph.put(node.getId(), new ArrayList<>());
         }
         for (CreateWorkflowRequest.Edge edge : edges) {
-            reverseGraph.get(edge.getTarget()).add(edge.getSource());
+            // 记录边：从源头指想目标
+            if (forwardGraph.containsKey(edge.getSource())) {
+                forwardGraph.get(edge.getSource()).add(edge.getTarget());
+            }
         }
 
-        // 从所有起始节点开始BFS
+        // 2. 从所有起始节点开始，顺着线往下跑 (BFS)
         Set<String> reachable = new HashSet<>();
         Queue<String> queue = new LinkedList<>(startNodes);
         reachable.addAll(startNodes);
 
         while (!queue.isEmpty()) {
             String current = queue.poll();
-            List<String> neighbors = reverseGraph.get(current);
+            List<String> neighbors = forwardGraph.get(current);
+
             if (neighbors != null) {
                 for (String neighbor : neighbors) {
                     if (!reachable.contains(neighbor)) {
@@ -180,8 +195,118 @@ public class DAGValidator {
             }
         }
 
-        // 检查所有节点是否可达
+        log.info("可达性检查结束。实际可达节点数: {}, 期望节点数: {}", reachable.size(), nodes.size());
+
+        // 如果发现不可达，打印出来是谁没被访问到（方便调试）
+        if (reachable.size() != nodes.size()) {
+            for (CreateWorkflowRequest.Node node : nodes) {
+                if (!reachable.contains(node.getId())) {
+                    log.error("发现孤岛节点(不可达): ID={}, Name={}", node.getId(), node.getName());
+                }
+            }
+        }
+
         return reachable.size() == nodes.size();
     }
-}
 
+    /**
+     * 验证工作流是否为DAG
+     */
+    public boolean isDAG(Workflow workflow) {
+        if (workflow == null || workflow.getNodes() == null || workflow.getNodes().isEmpty()) {
+            return true;
+        }
+
+        List<WorkflowNode> nodes = workflow.getNodes();
+        List<WorkflowEdge> edges = workflow.getEdges() != null ? workflow.getEdges() : new ArrayList<>();
+
+        // 检查是否有环
+        return !hasCycleForEntity(nodes, edges);
+    }
+
+    /**
+     * 对工作流节点进行拓扑排序
+     */
+    public List<String> topologicalSort(Workflow workflow) {
+        List<String> result = new ArrayList<>();
+
+        if (workflow == null || workflow.getNodes() == null || workflow.getNodes().isEmpty()) {
+            return result;
+        }
+
+        List<WorkflowNode> nodes = workflow.getNodes();
+        List<WorkflowEdge> edges = workflow.getEdges() != null ? workflow.getEdges() : new ArrayList<>();
+
+        // 构建邻接表
+        Map<String, List<String>> graph = new HashMap<>();
+        Map<String, Integer> inDegree = new HashMap<>();
+
+        // 初始化邻接表和入度表
+        for (WorkflowNode node : nodes) {
+            graph.put(node.getId(), new ArrayList<>());
+            inDegree.put(node.getId(), 0);
+        }
+
+        // 计算入度
+        for (WorkflowEdge edge : edges) {
+            String source = edge.getSource();
+            String target = edge.getTarget();
+            graph.get(source).add(target);
+            inDegree.put(target, inDegree.get(target) + 1);
+        }
+
+        // 使用队列进行拓扑排序
+        Queue<String> queue = new LinkedList<>();
+        for (Map.Entry<String, Integer> entry : inDegree.entrySet()) {
+            if (entry.getValue() == 0) {
+                queue.offer(entry.getKey());
+            }
+        }
+
+        while (!queue.isEmpty()) {
+            String current = queue.poll();
+            result.add(current);
+
+            List<String> neighbors = graph.get(current);
+            for (String neighbor : neighbors) {
+                inDegree.put(neighbor, inDegree.get(neighbor) - 1);
+                if (inDegree.get(neighbor) == 0) {
+                    queue.offer(neighbor);
+                }
+            }
+        }
+
+        // 检查是否所有节点都被访问到（如果没有，说明有环）
+        if (result.size() != nodes.size()) {
+            return new ArrayList<>();
+        }
+
+        return result;
+    }
+
+    /**
+     * 检查是否有环（使用DFS，针对WorkflowEntity）
+     */
+    private boolean hasCycleForEntity(List<WorkflowNode> nodes, List<WorkflowEdge> edges) {
+        // 构建邻接表
+        Map<String, List<String>> graph = new HashMap<>();
+        for (WorkflowNode node : nodes) {
+            graph.put(node.getId(), new ArrayList<>());
+        }
+        for (WorkflowEdge edge : edges) {
+            graph.get(edge.getSource()).add(edge.getTarget());
+        }
+
+        // 使用DFS检测环
+        Set<String> visited = new HashSet<>();
+        Set<String> recursionStack = new HashSet<>();
+
+        for (WorkflowNode node : nodes) {
+            if (hasCycleDFS(node.getId(), graph, visited, recursionStack)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+}

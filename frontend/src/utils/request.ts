@@ -102,3 +102,10 @@ export const del = <T = any>(url: string): Promise<T> => {
   return request<T>(url, { method: 'DELETE' })
 }
 
+// PATCH 请求
+export const patch = <T = any>(url: string, data?: any): Promise<T> => {
+  return request<T>(url, {
+    method: 'PATCH',
+    body: JSON.stringify(data),
+  })
+}

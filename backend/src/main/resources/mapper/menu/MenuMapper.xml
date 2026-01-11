@@ -25,9 +25,22 @@
         VALUES (#{parentId}, #{title}, #{path}, #{orderNum}, #{allowedRoles})
     </insert>
 
+    <update id="update" parameterType="com.aiagent.menu.entity.Menu">
+        UPDATE menus
+        SET parent_id = #{parentId},
+            title = #{title},
+            path = #{path},
+            order_num = #{orderNum},
+            allowed_roles = #{allowedRoles}
+        WHERE id = #{id}
+    </update>
+
+    <delete id="deleteById" parameterType="long">
+        DELETE FROM menus WHERE id = #{id}
+    </delete>
+
     <select id="count" resultType="long">
         SELECT COUNT(*) FROM menus
     </select>
 
 </mapper>
-

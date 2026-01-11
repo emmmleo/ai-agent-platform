@@ -38,5 +38,6 @@ public interface WorkflowMapper {
      * 删除工作流
      */
     int deleteById(@Param("id") Long id);
-}
 
+    int countByUserId(@Param("userId") Long userId);
+}

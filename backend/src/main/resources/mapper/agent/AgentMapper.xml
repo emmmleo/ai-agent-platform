@@ -70,8 +70,12 @@
         WHERE id = #{id} AND user_id = #{userId}
     </update>
 
-    <delete id="deleteById" parameterType="long">
+    <delete id="deleteById">
         DELETE FROM agent WHERE id = #{id}
     </delete>
+
+    <select id="countByUserId" resultType="int">
+        SELECT COUNT(*) FROM agent WHERE user_id = #{userId}
+    </select>
 
 </mapper>

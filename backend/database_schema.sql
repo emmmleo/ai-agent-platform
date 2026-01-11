@@ -18,6 +18,13 @@ CREATE TABLE IF NOT EXISTS `users` (
     `role` VARCHAR(50) NOT NULL DEFAULT 'ROLE_USER' COMMENT '角色：ROLE_USER, ROLE_ADMIN',
     `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    `school` VARCHAR(128) NULL COMMENT '学校/单位',
+    `phone` VARCHAR(32) NULL COMMENT '联系电话',
+    `email` VARCHAR(128) NULL COMMENT '邮箱',
+    `bio` VARCHAR(512) NULL COMMENT '个人简介',
+    `avatar_url` LONGTEXT NULL COMMENT '头像URL/图片DataURL',
+    `gender` VARCHAR(16) NULL COMMENT '性别：MALE/FEMALE/UNKNOWN',
+    `birthday` DATE NULL COMMENT '生日',
     PRIMARY KEY (`id`),
     UNIQUE KEY `uk_username` (`username`),
     KEY `idx_role` (`role`)
@@ -201,4 +208,3 @@ CREATE TABLE IF NOT EXISTS `agent_conversation_context` (
 --   - admin / 123456 (ROLE_ADMIN)
 --   - user / 123456 (ROLE_USER)
 -- ============================================
-

@@ -42,13 +42,23 @@ public class DataInitializer implements CommandLineRunner {
     }
 
     private void createUserIfAbsent(String username, String rawPassword, String role) {
-        if (userMapper.findByUsername(username) != null) {
+        User existingUser = userMapper.findByUsername(username);
+        String encodedPassword = passwordEncoder.encode(rawPassword);
+        
+        if (existingUser != null) {
+            // Force reset password for dev convenience (optional, but requested by user issue)
+            if ("admin".equals(username) || "user".equals(username)) {
+                existingUser.setPasswordHash(encodedPassword);
+                userMapper.updateUser(existingUser); // Assuming updateUser exists
+                log.info("Reset password for default user: {}", username);
+            }
             return;
         }
+
         LocalDateTime now = LocalDateTime.now();
         User user = new User();
         user.setUsername(username);
-        user.setPasswordHash(passwordEncoder.encode(rawPassword));
+        user.setPasswordHash(encodedPassword);
         user.setRole(role);
         user.setCreatedAt(now);
         user.setUpdatedAt(now);
@@ -62,6 +72,20 @@ public class DataInitializer implements CommandLineRunner {
         
         // 获取所有现有菜单
         var allMenus = menuMapper.findAll();
+
+        // Fix incorrect Dashboard path if exists
+        var wrongDashboard = allMenus.stream()
+                .filter(m -> "仪表盘".equals(m.getTitle()) && "/".equals(m.getPath()))
+                .findFirst();
+        
+        if (wrongDashboard.isPresent()) {
+            var menu = wrongDashboard.get();
+            menu.setPath("/dashboard");
+            menuMapper.update(menu);
+            log.info("Fixed incorrect Dashboard path from '/' to '/dashboard'");
+            // Refresh list
+            allMenus = menuMapper.findAll();
+        }
         
         // 清理旧的菜单路径（/home/* 路径）
         var oldMenus = allMenus.stream()
@@ -77,8 +101,8 @@ public class DataInitializer implements CommandLineRunner {
         }
         
         // 检查并创建/更新菜单（使用新路径）
-               ensureMenuExists(allMenus, "仪表盘", "/", 1, "ROLE_USER,ROLE_ADMIN");
-               ensureMenuExists(allMenus, "个人信息", "/profile", 2, "ROLE_USER,ROLE_ADMIN");
+               ensureMenuExists(allMenus, "仪表盘", "/dashboard", 1, "ROLE_USER,ROLE_ADMIN");
+               ensureMenuExists(allMenus, "个人信息", "/account/profile", 2, "ROLE_USER,ROLE_ADMIN");
                ensureMenuExists(allMenus, "智能体管理", "/agents", 3, "ROLE_USER,ROLE_ADMIN");
                ensureMenuExists(allMenus, "知识库管理", "/knowledge-bases", 4, "ROLE_USER,ROLE_ADMIN");
                ensureMenuExists(allMenus, "工作流管理", "/workflows", 5, "ROLE_USER,ROLE_ADMIN");

@@ -70,5 +70,9 @@
         DELETE FROM plugin WHERE id = #{id}
     </delete>
 
+    <select id="countByUserId" resultType="int">
+        SELECT COUNT(*) FROM plugin WHERE user_id = #{userId}
+    </select>
+
 </mapper>
 

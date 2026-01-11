@@ -2,7 +2,10 @@
   <div class="workflow-list">
     <div class="header">
       <h1>工作流管理</h1>
-      <router-link to="/workflows/new" class="create-btn">创建工作流</router-link>
+      <div class="header-actions">
+        <router-link to="/" class="back-btn">返回菜单</router-link>
+        <router-link to="/workflows/new" class="create-btn">创建工作流</router-link>
+      </div>
     </div>
 
     <div v-if="error" class="error-message">{{ error }}</div>
@@ -129,10 +132,31 @@ onMounted(() => {
   margin-bottom: 30px;
 }
 
+.header-actions {
+  display: flex;
+  gap: 15px;
+}
+
 h1 {
   color: #2c3e50;
   margin: 0;
   font-size: 28px;
+}
+
+.back-btn {
+  padding: 12px 24px;
+  background: #f8f9fa;
+  color: #2c3e50;
+  text-decoration: none;
+  border-radius: 4px;
+  font-size: 16px;
+  border: 1px solid #ddd;
+  transition: all 0.3s;
+}
+
+.back-btn:hover {
+  background: #e9ecef;
+  border-color: #ccc;
 }
 
 .create-btn {

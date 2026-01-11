@@ -5,7 +5,7 @@ export interface WorkflowNode {
   id: string
   type: string // start/end/agent/condition/action
   name: string
-  config?: Record<string, any>
+  data?: Record<string, any>
   position?: {
     x: number
     y: number

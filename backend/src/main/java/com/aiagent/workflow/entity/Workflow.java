@@ -82,5 +82,53 @@ public class Workflow {
     public void setUpdatedAt(LocalDateTime updatedAt) {
         this.updatedAt = updatedAt;
     }
+    // Transient fields for runtime usage (not persisted directly)
+    private transient java.util.List<WorkflowNode> nodes;
+    private transient java.util.List<WorkflowEdge> edges;
+
+    public java.util.List<WorkflowNode> getNodes() {
+        if (nodes == null && definition != null) {
+            parseDefinition();
+        }
+        return nodes != null ? nodes : java.util.Collections.emptyList();
+    }
+
+    public void setNodes(java.util.List<WorkflowNode> nodes) {
+        this.nodes = nodes;
+    }
+
+    public java.util.List<WorkflowEdge> getEdges() {
+        if (edges == null && definition != null) {
+            parseDefinition();
+        }
+        return edges != null ? edges : java.util.Collections.emptyList();
+    }
+
+    public void setEdges(java.util.List<WorkflowEdge> edges) {
+        this.edges = edges;
+    }
+
+    private void parseDefinition() {
+        try {
+            com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+            // Assuming definition is a JSON object with "nodes" and "edges" arrays
+            // But we need to know the structure. DTO uses "definition": { nodes: [], edges: [] }
+            // Let's assume definition String IS the Definition object JSON.
+            // Check CreateWorkflowRequest structure: Definition has nodes/edges.
+            Definition def = mapper.readValue(definition, Definition.class);
+            this.nodes = def.nodes;
+            this.edges = def.edges;
+        } catch (Exception e) {
+            // Log or ignore? Entity shouldn't log usually.
+            // e.printStackTrace();
+            this.nodes = java.util.Collections.emptyList();
+            this.edges = java.util.Collections.emptyList();
+        }
+    }
+
+    private static class Definition {
+        public java.util.List<WorkflowNode> nodes;
+        public java.util.List<WorkflowEdge> edges;
+    }
 }
 

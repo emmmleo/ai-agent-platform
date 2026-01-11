@@ -15,9 +15,15 @@ import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.aiagent.agent.client.DeepSeekClient;
+import org.springframework.beans.factory.ObjectProvider;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.stream.Collectors;
+import org.springframework.util.StringUtils;
 
 @Service
 public class WorkflowExecutionServiceImpl implements WorkflowExecutionService {
@@ -27,13 +33,16 @@ public class WorkflowExecutionServiceImpl implements WorkflowExecutionService {
     private final WorkflowExecutionMapper executionMapper;
     private final WorkflowMapper workflowMapper;
     private final ObjectMapper objectMapper;
+    private final ObjectProvider<DeepSeekClient> deepSeekClientProvider;
 
     public WorkflowExecutionServiceImpl(WorkflowExecutionMapper executionMapper,
                                         WorkflowMapper workflowMapper,
-                                        ObjectMapper objectMapper) {
+                                        ObjectMapper objectMapper,
+                                        ObjectProvider<DeepSeekClient> deepSeekClientProvider) {
         this.executionMapper = executionMapper;
         this.workflowMapper = workflowMapper;
         this.objectMapper = objectMapper;
+        this.deepSeekClientProvider = deepSeekClientProvider;
     }
 
     @Override
@@ -104,6 +113,19 @@ public class WorkflowExecutionServiceImpl implements WorkflowExecutionService {
             }
         }
         return toResponse(execution);
+    }
+
+    @Override
+    @Transactional
+    public Long createExecution(WorkflowExecution execution) {
+        executionMapper.insert(execution);
+        return execution.getId();
+    }
+
+    @Override
+    @Transactional
+    public void updateExecution(WorkflowExecution execution) {
+        executionMapper.update(execution);
     }
 
     /**
@@ -209,10 +231,40 @@ public class WorkflowExecutionServiceImpl implements WorkflowExecutionService {
             context.put(nodeId, nodeResult);
 
             // 更新后续节点
+            // For condition nodes, we need to determine which branch to follow
+            String activeBranchId = null;
+            if ("condition".equalsIgnoreCase(node.getType())) {
+                activeBranchId = (String) nodeResult.get("activeBranchId");
+            }
+
             for (String nextNodeId : graph.get(nodeId)) {
-                inDegree.put(nextNodeId, inDegree.get(nextNodeId) - 1);
-                if (inDegree.get(nextNodeId) == 0) {
-                    queue.offer(nextNodeId);
+                // Check if this edge should be traversed
+                boolean shouldTraverse = true;
+                
+                if (activeBranchId != null) {
+                    // Find the edge connecting nodeId to nextNodeId
+                    // We need to look up the edge definition to check its condition/branchId
+                    // Since graph structure doesn't store edge properties, we iterate original edges
+                    String edgeCondition = null;
+                    for (CreateWorkflowRequest.Edge edge : edges) {
+                        if (edge.getSource().equals(nodeId) && edge.getTarget().equals(nextNodeId)) {
+                            edgeCondition = edge.getCondition();
+                            break;
+                        }
+                    }
+                    
+                    // If edge has a condition (branchId), it must match the active branch
+                    // STRICT MODE: If activeBranchId is set (Condition Node), edge MUST have matching condition
+                    if (edgeCondition == null || !edgeCondition.equals(activeBranchId)) {
+                        shouldTraverse = false;
+                    }
+                }
+
+                if (shouldTraverse) {
+                    inDegree.put(nextNodeId, inDegree.get(nextNodeId) - 1);
+                    if (inDegree.get(nextNodeId) == 0) {
+                        queue.offer(nextNodeId);
+                    }
                 }
             }
         }
@@ -224,41 +276,269 @@ public class WorkflowExecutionServiceImpl implements WorkflowExecutionService {
      * 执行单个节点
      */
     private Map<String, Object> executeNode(CreateWorkflowRequest.Node node, Map<String, Object> context) {
-        String nodeType = node.getType();
+        // 关键修复：强制转为小写！
+        // 这样无论数据库存的是 "START" 还是 "start"，这里都能匹配上 case "start"
+        String nodeType = node.getType() == null ? "" : node.getType().toLowerCase();
+
         Map<String, Object> result = new HashMap<>();
         result.put("nodeId", node.getId());
         result.put("nodeType", nodeType);
         result.put("nodeName", node.getName());
 
+        log.info("正在执行节点: ID={}, Type={}, Name={}", node.getId(), nodeType, node.getName());
+
         try {
             switch (nodeType) {
                 case "start":
                     result.put("output", "工作流开始");
+                    // Forward all input parameters (from context) to Start Node output
+                    // This allows accessing inputs via {node_startId.param}
+                    // This allows accessing inputs via {node_startId.param}
+                    if (context != null) {
+                        result.putAll(context);
+                    }
+                    log.info(">>> 起始节点执行完成");
                     break;
                 case "end":
                     result.put("output", "工作流结束");
+                    log.info(">>> 结束节点执行完成");
                     break;
                 case "agent":
-                    // TODO: 调用智能体服务
-                    result.put("output", "智能体执行结果（模拟）");
+                case "llm":
+                    // Get LLM client instance (Prototype bean)
+                    DeepSeekClient llmClient = deepSeekClientProvider.getObject();
+                    
+                    // Prepare model configuration
+                    Map<String, Object> modelConfig = new HashMap<>();
+                    if (node.getData() != null) {
+                        modelConfig.putAll(node.getData());
+                    }
+                    
+                    // Replace variables in config (e.g. prompt)
+                    String systemPrompt = (String) modelConfig.get("system_prompt");
+                    if (systemPrompt != null) {
+                        modelConfig.put("system_prompt", replaceVariables(systemPrompt, context));
+                    }
+                    
+                    String userPrompt = (String) modelConfig.get("user_prompt");
+                    if (userPrompt != null) {
+                         // It might be stored as 'prompt' or 'user_prompt'
+                        userPrompt = replaceVariables(userPrompt, context);
+                    } else if (modelConfig.get("prompt") instanceof String) {
+                        userPrompt = replaceVariables((String) modelConfig.get("prompt"), context);
+                    }
+                    
+                    if (StringUtils.isEmpty(userPrompt)) {
+                        // throw new IllegalArgumentException("User prompt is required for LLM node");
+                        // Allow empty user prompt if system prompt is present, or just warn
+                        log.warn("User prompt is empty for LLM node {}", node.getId());
+                        userPrompt = " "; // Use empty space to avoid error
+                    }
+                    
+                    // Call LLM
+                    // If system prompt exists, append it as first message
+                    if (StringUtils.hasText(systemPrompt)) {
+                        llmClient.appendMessage("system", systemPrompt);
+                    }
+                    
+                    // Handle output
+                    DeepSeekClient.Message responseMessage = llmClient.chat(
+                        null, // context (optional, maybe from input?)
+                        userPrompt,
+                        null, // tools (todo: support tools from config)
+                        modelConfig
+                    );
+                    
+                    if (responseMessage != null) {
+                        result.put("output", responseMessage.getContent());
+                        result.put("content", responseMessage.getContent()); // Add 'content' alias
+                        result.put("message", responseMessage);
+                        // Store structured result for next nodes
+                        Map<String, Object> outputMap = new HashMap<>();
+                        outputMap.put("response", responseMessage.getContent());
+                        outputMap.put("role", responseMessage.getRole());
+                        result.put("data", outputMap); 
+                    } else {
+                        result.put("output", "");
+                        result.put("content", "");
+                    }
+                    
+                    log.info(">>> LLM node executed successfully");
+                    break;
+                case "reply":
+                    String content = (String) node.getData().get("content");
+                    if (content != null) {
+                        String processedContent = replaceVariables(content, context);
+                        result.put("content", processedContent);
+                        result.put("output", processedContent);
+                        log.info(">>> 回复节点执行完成: {}", processedContent);
+                    } else {
+                        result.put("output", "");
+                    }
                     break;
                 case "condition":
-                    // TODO: 执行条件判断
-                    result.put("output", "条件判断结果（模拟）");
+                    // Evaluate conditions to find active branch
+                    String activeBranchId = "branch_else"; // Default to ELSE
+                    String activeBranchName = "ELSE";
+                    
+                    if (node.getData() != null && node.getData().containsKey("branches")) {
+                        List<Map<String, Object>> branches = (List<Map<String, Object>>) node.getData().get("branches");
+                        
+                        for (Map<String, Object> branch : branches) {
+                            String branchName = (String) branch.get("name");
+                            if ("ELSE".equals(branchName)) continue;
+                            
+                            String logic = (String) branch.get("logic"); // AND / OR
+                            List<Map<String, Object>> conditions = (List<Map<String, Object>>) branch.get("conditions");
+                            
+                            boolean branchMatched = false;
+                            if (conditions == null || conditions.isEmpty()) {
+                                branchMatched = true; // No conditions = true? Or false? Usually true for empty groups if logic is AND
+                            } else {
+                                if ("OR".equalsIgnoreCase(logic)) {
+                                    branchMatched = false;
+                                    for (Map<String, Object> cond : conditions) {
+                                        if (evaluateCondition(cond, context)) {
+                                            branchMatched = true;
+                                            break;
+                                        }
+                                    }
+                                } else { // AND
+                                    branchMatched = true;
+                                    for (Map<String, Object> cond : conditions) {
+                                        if (!evaluateCondition(cond, context)) {
+                                            branchMatched = false;
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                            
+                            if (branchMatched) {
+                                activeBranchId = (String) branch.get("id");
+                                activeBranchName = branchName;
+                                break; // Stop at first match (IF/ELIF logic)
+                            }
+                        }
+                        
+                        // If no match found, activeBranchId remains "branch_else" (or whatever the ELSE branch ID is)
+                        if (activeBranchName.equals("ELSE")) {
+                             // Find ELSE branch ID
+                             for (Map<String, Object> branch : branches) {
+                                 if ("ELSE".equals(branch.get("name"))) {
+                                     activeBranchId = (String) branch.get("id");
+                                     break;
+                                 }
+                             }
+                        }
+                    }
+                    
+                    result.put("output", "条件分支: " + activeBranchName);
+                    result.put("activeBranchId", activeBranchId);
+                    log.info(">>> 条件节点执行完成, 激活分支: {} ({})", activeBranchName, activeBranchId);
                     break;
                 case "action":
-                    // TODO: 执行动作
                     result.put("output", "动作执行结果（模拟）");
                     break;
                 default:
+                    // 如果还走到这里，说明类型真的写错了
+                    log.warn("未知节点类型: {}", nodeType);
                     result.put("output", "未知节点类型: " + nodeType);
             }
         } catch (Exception e) {
+            log.error("节点执行出错: {}", node.getId(), e);
             result.put("error", e.getMessage());
             throw new RuntimeException("执行节点失败: " + node.getId(), e);
         }
 
         return result;
+    }
+
+    private String replaceVariables(String text, Map<String, Object> context) {
+        if (text == null) {
+            return null;
+        }
+
+        // Match variable: {{node_id}} or {{node_id.field}} or {{input.param}}
+        // Updated to use double curly braces {{...}} to avoid conflict with JSON
+        Pattern pattern = Pattern.compile("\\{\\{([^}]+)\\}\\}");
+        Matcher matcher = pattern.matcher(text);
+
+        StringBuffer sb = new StringBuffer();
+        while (matcher.find()) {
+            String varPath = matcher.group(1).trim(); // trim whitespace
+            String replacement = matcher.group(0); // Default to original text if not found
+
+            try {
+                // Handle {input.param} format
+                if (varPath.startsWith("input.")) {
+                    String paramName = varPath.substring(6); // Remove "input."
+                    Object inputObj = context.get("input"); // Assuming input is stored as "input" key or merged?
+                    // Based on executeWorkflowDefinition, context starts with inputParams.
+                    // But usually input params are directly in context or in a specific key?
+                    // In executeWorkflowDefinition: Map<String, Object> context = new HashMap<>(inputParams != null ? inputParams : new HashMap<>());
+                    // So input params are top-level keys in context.
+                    // Wait, CodeHubot uses {input.param}, assuming there is an "input" dict.
+                    // But here context IS the accumulated variables.
+                    // Let's check if "input" node exists or if we should look up directly.
+                    // If the user uses {input.foo}, they probably expect 'foo' from input.
+                    // Since context was initialized with inputParams, we can check context.get(paramName).
+                    
+                    // However, to be strict compatible with CodeHubot's {input.param}, we might need to support both.
+                    // If varPath is "input.param", we look for "param" in context.
+                    Object value = context.get(paramName);
+                    if (value != null) {
+                        replacement = String.valueOf(value);
+                    }
+                } else {
+                    // Handle {node_id} or {node_id.field} format
+                    String[] parts = varPath.split("\\.", 2);
+                    String nodeId = parts[0];
+                    
+                    if (context.containsKey(nodeId)) {
+                        Object nodeOutput = context.get(nodeId);
+                        
+                        // If {node_id.field} format
+                        if (parts.length > 1) {
+                            String fieldPath = parts[1];
+                            Map<String, Object> currentMap = (nodeOutput instanceof Map) ? (Map<String, Object>) nodeOutput : null;
+                            
+                            // Support nested field access, e.g., node_id.data.result
+                            Object value = currentMap;
+                            for (String field : fieldPath.split("\\.")) {
+                                if (value instanceof Map) {
+                                    value = ((Map<?, ?>) value).get(field);
+                                } else {
+                                    value = null; // Cannot access field on non-map
+                                    break;
+                                }
+                            }
+                            
+                            if (value != null) {
+                                replacement = String.valueOf(value);
+                            }
+                        } else {
+                            // {node_id} format
+                            if (nodeOutput instanceof String) {
+                                replacement = (String) nodeOutput;
+                            } else if (nodeOutput != null) {
+                                try {
+                                    replacement = objectMapper.writeValueAsString(nodeOutput);
+                                } catch (Exception e) {
+                                    replacement = nodeOutput.toString();
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("Variable replacement failed for {}: {}", varPath, e.getMessage());
+            }
+            
+            matcher.appendReplacement(sb, Matcher.quoteReplacement(replacement));
+        }
+        matcher.appendTail(sb);
+        return sb.toString();
     }
 
     private WorkflowExecutionResponse toResponse(WorkflowExecution execution) {
@@ -289,5 +569,86 @@ public class WorkflowExecutionServiceImpl implements WorkflowExecutionService {
         response.setCreatedAt(execution.getCreatedAt());
         return response;
     }
-}
 
+    private boolean evaluateCondition(Map<String, Object> condition, Map<String, Object> context) {
+        String variable = (String) condition.get("variable");
+        String operator = (String) condition.get("operator");
+        String value = (String) condition.get("value");
+        
+        // Resolve variable value from context
+        // Variable format: {{node_id.field}} or {{input.param}} or just param name
+        // We reuse replaceVariables logic but need the raw object, not string
+        Object varValue = resolveVariableValue(variable, context);
+        String varStr = varValue != null ? String.valueOf(varValue) : "";
+        
+        // Resolve target value (it might also contain variables)
+        String targetVal = replaceVariables(value, context);
+        if (targetVal == null) targetVal = "";
+        
+        switch (operator) {
+            case "==": return varStr.equals(targetVal);
+            case "!=": return !varStr.equals(targetVal);
+            case ">": return compare(varStr, targetVal) > 0;
+            case "<": return compare(varStr, targetVal) < 0;
+            case ">=": return compare(varStr, targetVal) >= 0;
+            case "<=": return compare(varStr, targetVal) <= 0;
+            case "contains": return varStr.contains(targetVal);
+            case "not_contains": return !varStr.contains(targetVal);
+            case "start_with": return varStr.startsWith(targetVal);
+            case "end_with": return varStr.endsWith(targetVal);
+            case "is": return varStr.equals(targetVal);
+            case "is_not": return !varStr.equals(targetVal);
+            case "is_empty": return StringUtils.isEmpty(varStr);
+            case "is_not_empty": return !StringUtils.isEmpty(varStr);
+            default: return false;
+        }
+    }
+    
+    private int compare(String v1, String v2) {
+        try {
+            double d1 = Double.parseDouble(v1);
+            double d2 = Double.parseDouble(v2);
+            return Double.compare(d1, d2);
+        } catch (NumberFormatException e) {
+            return v1.compareTo(v2);
+        }
+    }
+    
+    private Object resolveVariableValue(String variable, Map<String, Object> context) {
+        if (variable == null) return null;
+        
+        // Strip {{ }} if present
+        if (variable.startsWith("{{") && variable.endsWith("}}")) {
+            variable = variable.substring(2, variable.length() - 2).trim();
+        }
+        
+        if (variable.startsWith("input.")) {
+            return context.get(variable.substring(6));
+        } else if (variable.contains(".")) {
+            String[] parts = variable.split("\\.", 2);
+            String nodeId = parts[0];
+            String field = parts[1];
+            
+            Object nodeOutput = context.get(nodeId);
+            if (nodeOutput instanceof Map) {
+                return getNestedValue((Map<String, Object>) nodeOutput, field);
+            }
+        } else {
+            return context.get(variable);
+        }
+        return null;
+    }
+    
+    private Object getNestedValue(Map<String, Object> map, String path) {
+        String[] parts = path.split("\\.");
+        Object current = map;
+        for (String part : parts) {
+            if (current instanceof Map) {
+                current = ((Map<?, ?>) current).get(part);
+            } else {
+                return null;
+            }
+        }
+        return current;
+    }
+}

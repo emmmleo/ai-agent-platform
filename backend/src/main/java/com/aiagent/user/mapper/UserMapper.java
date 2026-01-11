@@ -19,6 +19,16 @@ public interface UserMapper {
 
     int updateLastLoginAt(@Param("id") Long id);
 
+    int updateUser(User user);
+
+    int updateProfile(@Param("id") Long id,
+                      @Param("school") String school,
+                      @Param("phone") String phone,
+                      @Param("email") String email,
+                      @Param("bio") String bio,
+                      @Param("avatarUrl") String avatarUrl,
+                      @Param("gender") String gender,
+                      @Param("birthday") java.time.LocalDate birthday);
+
     int deleteById(@Param("id") Long id);
 }
-

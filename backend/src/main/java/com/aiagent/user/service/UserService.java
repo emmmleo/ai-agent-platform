@@ -19,5 +19,6 @@ public interface UserService extends UserDetailsService {
     void markLogin(Long id);
 
     void deleteByUsername(String username);
-}
 
+    com.aiagent.user.entity.User updateProfile(String username, com.aiagent.user.dto.UserProfileUpdateRequest request);
+}
